@@ -1,0 +1,81 @@
+# /usr/local/etc/mediamtx.yml
+#
+# Trimmed from the stock config (picamera/mediamtx.yml, ~800 lines of defaults)
+# down to what this system actually uses. Everything omitted keeps its default.
+#
+# Flow:  camera Pi --SRT/8890--> MediaMTX --WebRTC--> browser (via nginx /stream/whep/)
+
+logLevel: info
+logDestinations: [stdout]
+
+###############################################
+# Listeners
+
+# SRT ingest. picamera/stream.sh publishes here:
+#   srt://sciencelabtoyou.com:8890?streamid=publish:pendulum
+srt: true
+srtAddress: :8890
+
+# WebRTC egress. Only bound to loopback-reachable HTTP; nginx proxies
+# /stream/whep/ -> 127.0.0.1:8889/pendulum/whep, so 8889 is NOT public.
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+
+# >>> THE CRITICAL LINE FOR AN ORACLE CLOUD VM <<<
+#
+# An OCI instance's NIC only ever sees its PRIVATE address (10.0.x.x). The
+# public IP is NAT'd by the fabric and never appears on any interface. With
+# only `webrtcIPsFromInterfaces: true`, MediaMTX advertises 10.0.x.x as its
+# ICE candidate, the browser tries to route to it, and the video silently
+# never starts -- the WHEP POST succeeds, so it looks like a player bug.
+#
+# Naming the public IP here makes MediaMTX advertise a reachable candidate.
+# If this instance's IP ever changes, THIS LINE MUST CHANGE TOO.
+webrtcAdditionalHosts: [129.153.42.213]
+webrtcIPsFromInterfaces: false
+
+# Media port -- must be open as UDP in both the OCI security list and the
+# instance's own iptables.
+webrtcLocalUDPAddress: :8189
+
+# Protocols this system does not use. Off by default here to shrink the
+# attack surface; the old server had all of these listening publicly.
+rtsp: false
+rtmp: false
+hls: false
+api: false
+metrics: false
+pprof: false
+playback: false
+
+###############################################
+# Authentication
+#
+# Anonymous, matching the current Pi setup (stream.sh sends no credentials).
+# Publishing is therefore open to anyone who can reach 8890/udp.
+# See docs/open-questions.md for the srtPublishPassphrase upgrade.
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+
+###############################################
+# Paths
+
+pathDefaults:
+  source: publisher
+  # Let a reconnecting Pi displace its own stale session after a network drop,
+  # instead of being refused until the old one times out.
+  overridePublisher: true
+  record: false
+
+paths:
+  # Name must match streamid=publish:pendulum in picamera/stream.sh
+  # and the /pendulum/whep proxy target in the nginx config.
+  pendulum:
+
+  all_others:

@@ -350,6 +350,8 @@
                 <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Live Data</h5>
                     <div class="d-flex align-items-center gap-2">
+                        <!-- Rig state, driven by retained MQTT pendulum/status -->
+                        <span id="rigStatus" class="badge bg-secondary" title="Pendulum rig state">RIG: UNKNOWN</span>
                         <span id="wsStatus" class="badge bg-secondary">Connecting...</span>
                         <button class="btn btn-sm btn-outline-light" onclick="clearCharts()">Clear</button>
                     </div>
@@ -974,6 +976,36 @@ setInterval(() => {
 }, CHART_UPDATE_INTERVAL);
 
 // ─────────────────────────────────────────────
+//  Rig status badge
+//
+//  Fed by MQTT topic pendulum/status, which dac_daemon.py publishes with
+//  retain=True and a Last Will of "offline". Because the messages are
+//  retained, a freshly-opened dashboard learns the rig's current state
+//  immediately rather than waiting for the next state change.
+// ─────────────────────────────────────────────
+const RIG_STATUS_STYLES = {
+    online:  { text: 'RIG: ONLINE',  cls: 'badge bg-success'   },
+    running: { text: 'RIG: RUNNING', cls: 'badge bg-primary'   },
+    homing:  { text: 'RIG: HOMING',  cls: 'badge bg-warning'   },
+    stopped: { text: 'RIG: STOPPED', cls: 'badge bg-secondary' },
+    offline: { text: 'RIG: OFFLINE', cls: 'badge bg-danger'    },
+    error:   { text: 'RIG: ERROR',   cls: 'badge bg-danger'    },
+};
+
+function updateRigStatus(status, detail) {
+    const el = document.getElementById('rigStatus');
+    if (!el) return;
+
+    const style = RIG_STATUS_STYLES[status] || { text: 'RIG: UNKNOWN', cls: 'badge bg-secondary' };
+
+    // For "running", the detail is the model name — worth showing, since it
+    // tells you whether someone else's experiment is already on the hardware.
+    el.textContent = detail ? `${style.text} (${detail})` : style.text;
+    el.className = style.cls;
+    el.title = detail ? `${status}: ${detail}` : status;
+}
+
+// ─────────────────────────────────────────────
 //  WebSocket — receives sensor data from server
 // ─────────────────────────────────────────────
 let sensorSocket = null;
@@ -990,6 +1022,9 @@ function initWebSocket() {
     sensorSocket.onclose = function() {
         document.getElementById('wsStatus').textContent = 'Disconnected';
         document.getElementById('wsStatus').className = 'badge bg-danger';
+        // With the socket down we no longer know the rig's state; showing the
+        // last-seen value would be misleading.
+        updateRigStatus('unknown', '');
         // Reconnect after 3 seconds
         setTimeout(initWebSocket, 3000);
     };
@@ -1001,6 +1036,15 @@ function initWebSocket() {
 
     sensorSocket.onmessage = function(e) {
         const outer = JSON.parse(e.data);
+
+        // Rig state (from MQTT pendulum/status) shares this socket with the
+        // sensor stream. Route it away before the charting path, or its
+        // fields end up in the chart buffer.
+        if (outer.type === 'rig_status') {
+            updateRigStatus(outer.status, outer.detail);
+            return;
+        }
+
         let data = outer.data || outer;
 
         // If still wrapped as raw string, parse it

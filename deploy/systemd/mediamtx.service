@@ -1,0 +1,34 @@
+# /etc/systemd/system/mediamtx.service
+#
+# Video relay. Ingests the camera Pi's SRT stream on :8890/udp and republishes
+# it as WebRTC on :8889 (signalling, proxied by nginx) + :8189/udp (media).
+#
+#   sudo systemctl enable --now mediamtx
+
+[Unit]
+Description=MediaMTX video relay (SRT ingest, WebRTC egress)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mediamtx
+Group=mediamtx
+
+ExecStart=/usr/local/bin/mediamtx /usr/local/etc/mediamtx.yml
+
+Restart=always
+RestartSec=5
+
+# MediaMTX buffers video in RAM (hlsSegmentMaxSize/recordMaxPartSize are 50M
+# each). On the 6 GB A1 this is comfortable, but the cap keeps a runaway
+# muxer from touching the rest of the stack.
+MemoryMax=1G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

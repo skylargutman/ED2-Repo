@@ -1,0 +1,58 @@
+# /etc/systemd/system/egnsite-web.service
+#
+# Django, served over ASGI. It MUST be ASGI, not plain WSGI -- Channels
+# handles the /ws/sensor/ WebSocket, and EGNSite/asgi.py routes it. Running
+# EGNSite.wsgi here would give a working dashboard with a permanently dead
+# live-data graph.
+#
+# The previous instance had gunicorn + uvicorn (and no daphne) in its venv,
+# so gunicorn driving a uvicorn worker class reproduces that setup.
+#
+#   sudo systemctl enable --now egnsite-web
+
+[Unit]
+Description=EGNSite Django ASGI (gunicorn + uvicorn worker)
+After=network-online.target redis-server.service mariadb.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=notify
+User=ubuntu
+Group=www-data
+
+WorkingDirectory=/opt/ed2/ED2-Repo/WebInterface
+EnvironmentFile=/opt/ed2/ED2-Repo/deploy/.env
+
+# Creates/cleans /run/egnsite automatically, so the socket path always exists
+# with the right ownership after a reboot.
+RuntimeDirectory=egnsite
+RuntimeDirectoryMode=0750
+
+# umask 007 makes the socket group-writable so nginx (www-data) can reach it.
+UMask=007
+
+ExecStart=/opt/ed2/venv/bin/gunicorn \
+    --name egnsite \
+    --workers 3 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind unix:/run/egnsite/gunicorn.sock \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    EGNSite.asgi:application
+
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+# --- Hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+
+[Install]
+WantedBy=multi-user.target

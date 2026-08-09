@@ -1,0 +1,45 @@
+# /etc/systemd/system/egnsite-mqtt.service
+#
+# The telemetry bridge: subscribes to MQTT topic `raspi/to_django`, writes each
+# payload to the Message table, and pushes it into the Channels group
+# `sensor_data`, which SensorDataConsumer fans out to every open browser.
+#
+# This is the piece that makes the live graph move. If the dashboard loads but
+# the graph is frozen, check this unit first.
+#
+# It is a plain long-running script (WebInterface/mqtt_subscriber.py), NOT a
+# manage.py subcommand -- the mqtt_listener/mqtt_subscriber management commands
+# that survive only as .pyc files are dead legacy code on old topics.
+#
+#   sudo systemctl enable --now egnsite-mqtt
+#   journalctl -u egnsite-mqtt -f
+
+[Unit]
+Description=EGNSite MQTT to WebSocket bridge
+After=network-online.target redis-server.service mosquitto.service mariadb.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=www-data
+
+WorkingDirectory=/opt/ed2/ED2-Repo/WebInterface
+EnvironmentFile=/opt/ed2/ED2-Repo/deploy/.env
+
+# Unbuffered, so print() output lands in the journal immediately instead of
+# sitting in a pipe buffer -- this script's logging is all print().
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/ed2/venv/bin/python /opt/ed2/ED2-Repo/WebInterface/mqtt_subscriber.py
+
+Restart=always
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

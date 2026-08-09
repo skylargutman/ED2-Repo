@@ -9,13 +9,28 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+import os
 import pymysql
 pymysql.install_as_MySQLdb()
 
 from pathlib import Path
 
-# Build paths inside the project 
+# Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load deploy/.env when present so production secrets stay out of git.
+# On a dev machine there is no .env and every setting below falls back to the
+# original hardcoded value, so local behaviour is unchanged.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR.parent / 'deploy' / '.env')
+except ImportError:
+    pass
+
+
+def _env_list(name, default=''):
+    """Read a comma-separated env var into a list, ignoring blanks."""
+    return [item.strip() for item in os.environ.get(name, default).split(',') if item.strip()]
 
 LOGIN_URL = '/login/'
 LOGOUT_REDIRECT_URL = '/login/'
@@ -25,22 +40,26 @@ LOGIN_REDIRECT_URL = '/dashboard/'
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'efiy#i9cg+dw!i+b+$6&t7v2r5rjc=@h31t2e&w#r)9z2c*gp0'
+# The literal below is the historical dev key and is public in git history.
+# Production MUST override it via DJANGO_SECRET_KEY in deploy/.env.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'efiy#i9cg+dw!i+b+$6&t7v2r5rjc=@h31t2e&w#r)9z2c*gp0',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
 APPEND_SLASH = True
 
-ALLOWED_HOSTS = [
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS') or [
     'www.sciencelabtoyou.com',
     'localhost',
     '127.0.0.1',
     #ALL NGROK DOMAINS
-    '.ngrok.io', 
+    '.ngrok.io',
     '.ngrok-free.app',
     '.ngrok-free.dev',
-    '157.151.177.17',
     'sciencelabtoyou.com',
 ]
 
@@ -51,7 +70,10 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [('127.0.0.1', 6379)],
+            'hosts': [(
+                os.environ.get('REDIS_HOST', '127.0.0.1'),
+                int(os.environ.get('REDIS_PORT', 6379)),
+            )],
         },
     },
 }
@@ -108,11 +130,11 @@ WSGI_APPLICATION = 'EGNSite.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'egnsitedb',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': 'localhost',
-        'PORT': '3306',
+        'NAME': os.environ.get('DB_NAME', 'egnsitedb'),
+        'USER': os.environ.get('DB_USER', 'root'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '3306'),
     }
 }
 
@@ -166,10 +188,24 @@ STATICFILES_DIRS = [
 
 STATIC_ROOT = BASE_DIR / 'collected_static'
 
-SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
-CSRF_TRUSTED_ORIGINS = [
+# nginx terminates TLS and forwards plain HTTP to gunicorn. Without this,
+# Django believes every request is insecure: request.is_secure() returns False,
+# CSRF rejects POSTs whose Origin is https://, and the dashboard's command
+# buttons fail with 403.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Cookies are only marked Secure in production; leaving them Secure during
+# local http:// development silently breaks login.
+SECURE_SSL_REDIRECT = False          # nginx already redirects :80 -> :443
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# The deployed origin MUST be listed here or every POST from the dashboard is
+# rejected. The previous config listed only ngrok domains and got away with it
+# because DEBUG was True.
+CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS') or [
+    'https://sciencelabtoyou.com',
+    'https://www.sciencelabtoyou.com',
     #ALL NGROK DOMAINS
     'https://*.ngrok.io',
     'https://*.ngrok-free.app',
