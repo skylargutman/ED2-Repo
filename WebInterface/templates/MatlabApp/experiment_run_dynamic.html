@@ -1011,7 +1011,11 @@ function updateRigStatus(status, detail) {
 let sensorSocket = null;
 
 function initWebSocket() {
-    const wsUrl = 'wss://' + window.location.host + '/ws/sensor/';
+    // Match the page's scheme: wss:// on HTTPS, ws:// on plain HTTP. A
+    // hardcoded wss:// fails outright when the site is served over HTTP,
+    // which is how it runs before TLS is enabled.
+    const wsScheme = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
+    const wsUrl = wsScheme + window.location.host + '/ws/sensor/';
     sensorSocket = new WebSocket(wsUrl);
 
     sensorSocket.onopen = function() {

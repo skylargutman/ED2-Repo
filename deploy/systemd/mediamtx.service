@@ -15,6 +15,17 @@ Type=simple
 User=mediamtx
 Group=mediamtx
 
+# Refresh webrtcAdditionalHosts with the instance's current public IP before
+# starting. The IP is ephemeral (Oracle no longer offers reserved addresses on
+# this tenancy), so a rebuilt instance would otherwise advertise a stale ICE
+# candidate and serve video that connects but never plays.
+#
+# The leading '+' runs this as root -- User=mediamtx cannot write to
+# /usr/local/etc. Failure is non-fatal (leading '-'): a transient metadata
+# blip should not stop the whole video relay from starting with its last
+# known-good config.
+ExecStartPre=-+/opt/ed2/ED2-Repo/deploy/set-public-ip.sh
+
 ExecStart=/usr/local/bin/mediamtx /usr/local/etc/mediamtx.yml
 
 Restart=always

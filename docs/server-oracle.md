@@ -24,15 +24,36 @@ proxies, that's an unnecessary debugging tax. Ubuntu also packages mosquitto,
 redis, and certbot more directly, and ships Python 3.12 — supported by
 Django 4.2 LTS (since 4.2.8).
 
-### Pinning the public IP
+### The public IP is ephemeral
 
-New instances get an **ephemeral** IP that is lost if the instance is
-terminated or the VNIC detached. Convert it — the address does not change:
+Oracle no longer permits reserved public IPs on this tenancy, so the address
+stays **ephemeral**. What that actually means:
 
-**Instance → Attached VNICs → primary VNIC → IPv4 Addresses → ⋮ → Edit →
-Public IP Type: Reserved.**
+- ✅ It **survives reboots and stop/starts**. An ephemeral IP is held for the
+  lifetime of the instance.
+- ❌ It is **released if the instance is terminated** or its VNIC detached. A
+  rebuild gets a new address.
 
-Always Free includes 2 reserved public IPs.
+So this is not a day-to-day hazard, but a rebuild means the IP changes.
+
+**`deploy/set-public-ip.sh` handles that automatically.** It discovers the
+current address from OCI's instance metadata service and rewrites the one
+config that genuinely needs a literal IP — MediaMTX's
+`webrtcAdditionalHosts` — plus the IP entry in `DJANGO_ALLOWED_HOSTS`. It runs
+as `ExecStartPre` of `mediamtx.service`, so a rebuilt instance self-heals on
+boot. You can also run it by hand:
+
+```bash
+sudo /opt/ed2/ED2-Repo/deploy/set-public-ip.sh
+```
+
+Note it reads the IP from the metadata service, **not** from the network
+interface — an OCI VNIC only ever carries the private 10.x address.
+
+Everything else in the system refers to the **hostname**, not the IP: the
+Pis' `stream.sh`, `autossh-tunnel.service`, and `dac_daemon.py` all target
+`sciencelabtoyou.com`. So after a rebuild the only manual step is updating the
+DNS A record — the Pis need no changes.
 
 ## Two firewalls
 
@@ -88,15 +109,39 @@ and drops all service configs into place.
 
 It then prints the manual steps, which are interactive by nature:
 
-1. **DNS** — point `sciencelabtoyou.com` A → `129.153.42.213`, confirm with
+1. **DNS** — point `sciencelabtoyou.com` A → the instance IP, confirm with
    `dig +short sciencelabtoyou.com`
 2. **Database** — create `egnsitedb` and the `egnsite` user
 3. **Secrets** — `cp deploy/env.example deploy/.env`, generate a fresh
    `DJANGO_SECRET_KEY`, set the DB password
 4. **Migrate** — `manage.py migrate`, `collectstatic`, `createsuperuser`
-5. **TLS** — `sudo certbot --nginx -d sciencelabtoyou.com -d www.sciencelabtoyou.com`
-   (needs DNS live first)
-6. **Start** — `sudo systemctl enable --now egnsite-web egnsite-mqtt mediamtx`
+5. **Start** — `sudo systemctl enable --now egnsite-web egnsite-mqtt mediamtx`
+6. **TLS, later** — `sudo deploy/enable-tls.sh` once DNS resolves here
+
+### HTTP first, TLS second
+
+`bootstrap.sh` installs `nginx/sciencelabtoyou-http.conf`, **not** the TLS
+config, because of a bootstrapping cycle: the TLS config references
+`/etc/letsencrypt/live/…/fullchain.pem`, and if that file is missing `nginx -t`
+fails and nginx won't start — leaving it unable to serve the ACME challenge
+that would create the certificate.
+
+The HTTP config is fully functional. The site, the sensor WebSocket, and the
+video proxy all work over plain HTTP against the bare IP, so the whole stack
+can be validated **before DNS is ready**. Its `server_name _` catch-all means
+it answers on any address, which matters given the ephemeral IP.
+
+Once DNS resolves to the instance:
+
+```bash
+sudo /opt/ed2/ED2-Repo/deploy/enable-tls.sh
+```
+
+That checks DNS actually points here (otherwise the HTTP-01 challenge would be
+answered by whatever host it *does* point at), obtains the certificate with
+`certbot certonly --webroot`, swaps in the TLS config, and rolls back to HTTP
+if `nginx -t` fails. `--webroot` rather than `--nginx` so certbot doesn't
+rewrite the hand-written config — what's deployed stays exactly what's in git.
 
 ### Accounts to recreate
 
@@ -110,14 +155,14 @@ The database starts empty. Beyond the superuser, the app expects:
 
 ## Configuration that encodes the IP
 
-If the instance IP ever changes, these must change together:
+| File | Setting | Updated by |
+|---|---|---|
+| `/usr/local/etc/mediamtx.yml` | `webrtcAdditionalHosts` | `set-public-ip.sh` (automatic) |
+| `deploy/.env` | `DJANGO_ALLOWED_HOSTS` | `set-public-ip.sh` (automatic) |
+| `nginx/sciencelabtoyou.conf` | `server_name` | not needed — hostname-based |
+| DNS | the A record | **manual** |
 
-| File | Setting |
-|---|---|
-| `deploy/mediamtx/mediamtx.yml` | `webrtcAdditionalHosts` |
-| `deploy/.env` | `DJANGO_ALLOWED_HOSTS` |
-| `deploy/nginx/sciencelabtoyou.conf` | `server_name` (the bare-IP entry) |
-| DNS | the A record |
+After a rebuild, the DNS A record is the only manual step.
 
 ### The WebRTC/OCI gotcha
 

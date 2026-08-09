@@ -99,6 +99,11 @@ fi
 id -u mediamtx >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin mediamtx
 sudo install -m 0644 "${REPO}/deploy/mediamtx/mediamtx.yml" /usr/local/etc/mediamtx.yml
 
+# The public IP is ephemeral, so discover the real one rather than trusting
+# the literal committed in mediamtx.yml.
+sudo install -m 0755 "${REPO}/deploy/set-public-ip.sh" "${REPO}/deploy/set-public-ip.sh"
+sudo "${REPO}/deploy/set-public-ip.sh" || echo "  (IP sync failed; check manually)"
+
 # ---------------------------------------------------------------------------
 log "Installing service configs"
 # ---------------------------------------------------------------------------
@@ -106,10 +111,15 @@ sudo install -m 0644 "${REPO}/deploy/mosquitto/pendulum.conf" /etc/mosquitto/con
 sudo install -m 0644 "${REPO}/deploy/systemd/egnsite-web.service"  /etc/systemd/system/
 sudo install -m 0644 "${REPO}/deploy/systemd/egnsite-mqtt.service" /etc/systemd/system/
 sudo install -m 0644 "${REPO}/deploy/systemd/mediamtx.service"     /etc/systemd/system/
-sudo install -m 0644 "${REPO}/deploy/nginx/sciencelabtoyou.conf" /etc/nginx/sites-available/sciencelabtoyou
+# HTTP-only config to start with. The TLS config references certificate files
+# that do not exist yet, and nginx refuses to start if they are missing --
+# which would leave us unable to serve the ACME challenge that creates them.
+# deploy/enable-tls.sh swaps in the TLS config once DNS is live.
+sudo install -m 0644 "${REPO}/deploy/nginx/sciencelabtoyou-http.conf" /etc/nginx/sites-available/sciencelabtoyou
 sudo ln -sf /etc/nginx/sites-available/sciencelabtoyou /etc/nginx/sites-enabled/sciencelabtoyou
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo mkdir -p /var/www/certbot
+sudo chmod +x "${REPO}/deploy/enable-tls.sh"
 
 # Redis and MariaDB stay bound to loopback; nothing external should reach them.
 sudo systemctl enable --now redis-server mariadb mosquitto
@@ -120,9 +130,14 @@ log "Bootstrap complete -- remaining MANUAL steps"
 # ---------------------------------------------------------------------------
 cat <<EOF
 
-  Public IP baked into configs: ${PUBLIC_IP}
+  Public IP (ephemeral, discovered at run time): $(curl -fsS -m 5 \
+      -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
+      | grep -oP '"publicIp"\s*:\s*"\K[0-9.]+' | head -1 || echo "${PUBLIC_IP}")
 
-  1. Point DNS:  sciencelabtoyou.com  A  ${PUBLIC_IP}
+  nginx is serving HTTP only for now. Steps 1 and 5 need DNS; everything
+  else can be done immediately and tested against the bare IP.
+
+  1. Point DNS:  sciencelabtoyou.com  A  <the IP above>
      Wait for it to resolve:  dig +short sciencelabtoyou.com
 
   2. Create the database and user:
@@ -144,13 +159,17 @@ cat <<EOF
        ${VENV}/bin/python manage.py collectstatic --noinput
        ${VENV}/bin/python manage.py createsuperuser
 
-  5. Get the TLS cert (needs DNS from step 1 to have propagated):
-       sudo certbot --nginx -d sciencelabtoyou.com -d www.sciencelabtoyou.com
-
-  6. Start everything:
+  5. Start everything:
        sudo systemctl enable --now egnsite-web egnsite-mqtt mediamtx
        sudo systemctl reload nginx
 
-  7. Verify:  ${REPO}/docs/operations.md  ("Smoke test" section)
+     The site should now answer over HTTP on the bare IP. Verify with the
+     "Smoke test" section of ${REPO}/docs/operations.md.
+
+  6. LATER, once DNS from step 1 resolves -- enable HTTPS:
+       sudo ${REPO}/deploy/enable-tls.sh
+
+     This obtains the certificate and swaps in the TLS nginx config. It
+     refuses to run (and rolls back) if DNS does not point here yet.
 
 EOF
