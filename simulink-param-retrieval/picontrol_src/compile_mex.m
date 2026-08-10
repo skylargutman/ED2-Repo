@@ -10,10 +10,15 @@
 %   2. cd to picontrol_src/
 %   3. Edit MODEL_CONFIG_DIR below to point to your model folder
 %   4. Run: compile_mex
-
-% --- EDIT THESE TWO PATHS for your machine ---
-SRC_DIR         = 'C:\Users\Skylar\Documents\MATLAB\picontrol_src';
-MODEL_CONFIG_DIR = 'C:\Users\Skylar\Documents\MATLAB\TestCartPend1';
+%
+% --- Edit to point to your model folder ---
+MODEL_CONFIG_DIR_NAME = 'TestCartPend1'; % No leading / !!
+% ---------------------------------------------
+[CURRENT_DIR, ~, ~] = fileparts(mfilename('fullpath'));
+disp(['Working directory: ', CURRENT_DIR])
+CURRENT_DIR      = fullfile(CURRENT_DIR, '..');
+SRC_DIR          = fullfile(CURRENT_DIR, '/picontrol_src');
+MODEL_CONFIG_DIR = fullfile(CURRENT_DIR, MODEL_CONFIG_DIR_NAME)
 % ---------------------------------------------
 
 fprintf('Compiling read_params_sfcn...\n');
