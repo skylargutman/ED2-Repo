@@ -200,6 +200,38 @@ Two things that produce this error even when the password *looks* right:
   grant because the server reverse-resolves the address. `setup-db.sh` grants
   to both hosts so this can't bite.
 
+### Browser can't reach the site, but curl works on the server
+
+Read the exact browser error — the two mean different things:
+
+| Error | Meaning |
+|---|---|
+| `ERR_CONNECTION_REFUSED` | Packets reach the host; nothing is listening on that port |
+| `ERR_CONNECTION_TIMED_OUT` | Packets are being dropped — firewall (see the iptables entry below) |
+
+**Before TLS is enabled, only port 80 is listening.** `https://` therefore gets
+refused, and Chrome's HTTPS-First mode silently upgrades a typed URL to
+`https://`, so it looks like the server is down when it is fine. Type the
+scheme explicitly:
+
+```
+http://129.153.42.213/login/
+```
+
+An incognito window helps if Chrome has cached the upgrade for that host.
+
+Confirm the server side independently before suspecting the network:
+
+```bash
+systemctl is-active nginx
+sudo nginx -t
+ss -lntp | grep -E ':(80|443)\s'      # expect 0.0.0.0:80 (and :443 only after TLS)
+curl -sI http://localhost/login/      # expect 200
+```
+
+If all four are healthy, the problem is between the browser and the host, not
+on the host.
+
 ### collectstatic: "Found another file with the destination path ..."
 
 A long list of these for `admin/…` paths means Django's admin assets have been
