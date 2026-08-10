@@ -43,22 +43,12 @@ log "Opening the instance firewall"
 # allow a port or traffic dies silently. This is the #1 cause of "my OCI
 # instance won't serve traffic".
 #
-# Rules are inserted before the catch-all REJECT in the INPUT chain.
-open_port() {
-    local port="$1" proto="$2"
-    if ! sudo iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null; then
-        sudo iptables -I INPUT 6 -p "$proto" --dport "$port" -j ACCEPT
-        echo "  opened ${port}/${proto}"
-    else
-        echo "  ${port}/${proto} already open"
-    fi
-}
-open_port 80   tcp   # HTTP  -- certbot challenge + redirect
-open_port 443  tcp   # HTTPS -- the site
-open_port 1885 tcp   # MQTT  -- control Pi
-open_port 8890 udp   # SRT   -- camera Pi video ingest
-open_port 8189 udp   # WebRTC media
-sudo netfilter-persistent save
+# Delegated to open-firewall.sh, which locates the catch-all REJECT rather
+# than assuming its position, and then VERIFIES each ACCEPT actually precedes
+# it. An earlier version here hardcoded `-I INPUT 6`; when the chain differed,
+# rules landed after the REJECT, where they are listed, look correct, and do
+# nothing.
+sudo "${REPO}/deploy/open-firewall.sh"
 
 # ---------------------------------------------------------------------------
 log "Cloning the repo"
