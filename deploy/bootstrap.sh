@@ -158,7 +158,6 @@ cat <<EOF
 
   4. Migrate and collect static:
        cd ${REPO}/WebInterface
-       set -a; . ${REPO}/deploy/.env; set +a
        ${VENV}/bin/python manage.py migrate
        ${VENV}/bin/python manage.py collectstatic --noinput
        ${VENV}/bin/python manage.py createsuperuser

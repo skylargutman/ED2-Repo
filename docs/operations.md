@@ -4,6 +4,11 @@
 
 The server runs a checkout of this repo at `/opt/ed2/ED2-Repo`:
 
+> **Run `manage.py` as `ubuntu`, never with `sudo`, and do not source
+> `deploy/.env`.** `settings.py` loads that file itself. See
+> "Access denied ... after setup-db.sh succeeded" below for why sourcing it
+> actively breaks things.
+
 ```bash
 ssh ubuntu@sciencelabtoyou.com
 cd /opt/ed2/ED2-Repo
@@ -14,7 +19,6 @@ git pull
 
 # Only if models/migrations changed
 cd WebInterface
-set -a; . /opt/ed2/ED2-Repo/deploy/.env; set +a
 /opt/ed2/venv/bin/python manage.py migrate
 
 # Only if templates/static changed
@@ -145,7 +149,6 @@ the E-stop button. To clear it manually:
 
 ```bash
 cd /opt/ed2/ED2-Repo/WebInterface
-set -a; . ../deploy/.env; set +a
 /opt/ed2/venv/bin/python manage.py shell -c \
   "from MatlabApp.models import ControlLock; ControlLock.objects.all().delete()"
 ```
@@ -196,6 +199,47 @@ Two things that produce this error even when the password *looks* right:
   `.env` sets `DB_HOST=127.0.0.1` (TCP), which only matches a `@'localhost'`
   grant because the server reverse-resolves the address. `setup-db.sh` grants
   to both hosts so this can't bite.
+
+### Access denied (1045) after `setup-db.sh` succeeded — and `sudo` "fixes" it
+
+The tell-tale symptom: `manage.py migrate` fails as `ubuntu` but works under
+`sudo`. That is **not** a permissions problem, and `sudo` is not the fix.
+
+`settings.py` calls `load_dotenv(deploy/.env)`, and python-dotenv defaults to
+**`override=False`** — it will not replace variables already present in the
+environment. So if your shell exported `DB_PASSWORD` earlier (from a
+`set -a; . .env; set +a`, back when it still said `replace-me`), that stale
+value **shadows the file forever**. `setup-db.sh` writing a fresh password to
+`.env` changes nothing, because the environment wins.
+
+`sudo` resets the environment (`env_reset`), so nothing shadows the file and
+it connects — which makes `sudo` look like the cure while hiding the cause.
+
+Diagnose:
+
+```bash
+env | grep -E '^(DB_|DJANGO_|REDIS_|MQTT_)'      # anything here is shadowing .env
+```
+
+Fix — start a clean shell:
+
+```bash
+exec bash -l
+cd /opt/ed2/ED2-Repo/WebInterface
+/opt/ed2/venv/bin/python manage.py migrate       # no sudo
+```
+
+**Never source `deploy/.env` into your shell.** `settings.py` reads it, and
+systemd reads it via `EnvironmentFile=`. Sourcing it by hand is redundant and
+sets this exact trap.
+
+If you did run `manage.py` under `sudo`, fix any root-owned files it left
+behind, or the services (which run as `ubuntu`) will fail later:
+
+```bash
+sudo chown -R ubuntu:www-data /opt/ed2/ED2-Repo
+find /opt/ed2/ED2-Repo -user root
+```
 
 ### CSRF verification failed on POST
 

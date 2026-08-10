@@ -116,9 +116,22 @@ Check ${ENV_FILE}, and that mariadb is listening:  ss -lntp | grep 3306"
 fi
 
 echo
-echo "Database ready. Next:"
+echo "Database ready. Next (settings.py reads .env itself -- do NOT source it,"
+echo "and do NOT use sudo):"
 echo "    cd ${REPO}/WebInterface"
-echo "    set -a; . ${ENV_FILE}; set +a"
 echo "    /opt/ed2/venv/bin/python manage.py migrate"
 echo "    /opt/ed2/venv/bin/python manage.py collectstatic --noinput"
 echo "    /opt/ed2/venv/bin/python manage.py createsuperuser"
+echo
+
+# If the invoking shell already exported DB_* (e.g. from a previous
+# `set -a; . .env`), those stale values SHADOW the file: python-dotenv's
+# load_dotenv() defaults to override=False. The password just written here
+# would then be ignored and Django would fail with 1045.
+if [[ -n "${SUDO_USER:-}" ]] && sudo -u "${SUDO_USER}" env 2>/dev/null | grep -q '^DB_PASSWORD='; then
+    echo "  WARNING: your shell already exports DB_PASSWORD. It will shadow the"
+    echo "           value just written to .env and Django will fail with 1045."
+    echo "           Start a clean shell before running manage.py:"
+    echo "               exec bash -l"
+    echo
+fi

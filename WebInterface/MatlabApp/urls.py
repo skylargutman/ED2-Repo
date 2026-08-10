@@ -1,10 +1,12 @@
-from django.contrib import admin
 from django.urls import path
 from accounts import views as accounts_views
 from . import views
 
+# NOTE: no 'admin/' route here. EGNSite/urls.py already registers
+# admin.site.urls, and registering it twice makes Django emit
+#   urls.W005: URL namespace 'admin' isn't unique
+# and can break reverse() for admin URLs.
 urlpatterns = [
-    path('admin/', admin.site.urls),
     # Authentication URLs
     path('login/', accounts_views.login_view, name='login'),
     path('register/', accounts_views.register, name='register'),

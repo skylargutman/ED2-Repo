@@ -21,6 +21,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Load deploy/.env when present so production secrets stay out of git.
 # On a dev machine there is no .env and every setting below falls back to the
 # original hardcoded value, so local behaviour is unchanged.
+#
+# PRECEDENCE: load_dotenv defaults to override=False, so a variable already in
+# the environment BEATS the file. That is correct for systemd (which passes the
+# same values via EnvironmentFile=), but it means a shell that has sourced an
+# older copy of .env will silently shadow the current one -- producing a
+# database "Access denied" that survives fixing the password, and that appears
+# to be cured by sudo (which resets the environment). Do not source .env by
+# hand; this call is the only loader you need. See docs/operations.md.
 try:
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR.parent / 'deploy' / '.env')
