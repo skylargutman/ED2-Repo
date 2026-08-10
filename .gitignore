@@ -24,6 +24,13 @@ db.sqlite3-journal
 # Source images live in WebInterface/staticfiles/.
 collected_static/
 
+# Django's own admin assets are supplied by the installed Django package and
+# collected automatically. They must NOT be vendored into STATICFILES_DIRS:
+# FileSystemFinder is searched before AppDirectoriesFinder, so a stale copy
+# silently shadows the real ones and you end up serving admin CSS/JS from a
+# different Django version than the one running.
+WebInterface/staticfiles/admin/
+
 # Secrets. Use deploy/env.example as the template.
 .env
 *.pem

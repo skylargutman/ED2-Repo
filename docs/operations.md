@@ -200,6 +200,31 @@ Two things that produce this error even when the password *looks* right:
   grant because the server reverse-resolves the address. `setup-db.sh` grants
   to both hosts so this can't bite.
 
+### collectstatic: "Found another file with the destination path ..."
+
+A long list of these for `admin/…` paths means Django's admin assets have been
+vendored into `WebInterface/staticfiles/`, duplicating what the installed
+Django package already provides.
+
+This is not cosmetic. `STATICFILES_DIRS` is searched by `FileSystemFinder`
+**before** `AppDirectoriesFinder`, so the vendored copy **wins** — you end up
+serving admin CSS/JS from whatever Django version generated it, against
+whatever Django is actually running. The tell is a summary like
+`0 static files copied, 127 unmodified` where 127 is suspiciously close to the
+number of vendored files.
+
+Fixed in the repo by deleting `WebInterface/staticfiles/admin/` (and
+gitignoring it). If a stale `collected_static` is still on the server, clear it
+so the correct assets are picked up:
+
+```bash
+cd /opt/ed2/ED2-Repo && git pull
+rm -rf WebInterface/collected_static
+cd WebInterface && /opt/ed2/venv/bin/python manage.py collectstatic --noinput
+```
+
+You should then see several hundred files copied and no duplicate warnings.
+
 ### `sudo: deploy/<script>.sh: command not found`
 
 The file isn't executable. The scripts are committed mode 755, but a checkout
