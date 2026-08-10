@@ -3,6 +3,12 @@
 # Create the MariaDB database and user, and make deploy/.env agree with it.
 #
 #     sudo /opt/ed2/ED2-Repo/deploy/setup-db.sh
+#     sudo /opt/ed2/ED2-Repo/deploy/setup-db.sh --new-password
+#
+# --new-password forces a fresh generated password even if .env already has
+# one, and applies it to both MariaDB and .env so they cannot drift apart.
+# Use it if the current password contains characters that the shell or systemd
+# may mangle -- see the alphabet note below.
 #
 # MUST be run with sudo. On Ubuntu, MariaDB's root account uses the
 # unix_socket auth plugin -- it authenticates by OS user, not password. A bare
@@ -18,6 +24,17 @@ set -euo pipefail
 REPO="${REPO:-/opt/ed2/ED2-Repo}"
 ENV_FILE="${ENV_FILE:-${REPO}/deploy/.env}"
 
+FORCE_NEW_PASSWORD=0
+for arg in "$@"; do
+    case "${arg}" in
+        --new-password) FORCE_NEW_PASSWORD=1 ;;
+        -h|--help)
+            sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0 ;;
+        *) echo "unknown option: ${arg}" >&2; exit 2 ;;
+    esac
+done
+
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
@@ -30,8 +47,12 @@ die() { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 # Read current values without sourcing the file (avoids shell expansion of
 # any $ or backticks that happen to be inside a password).
 # ---------------------------------------------------------------------------
+# awk stops at the first match itself rather than piping into `head`. Under
+# `set -o pipefail` a consumer that exits early (head) sends SIGPIPE to the
+# producer, the pipeline reports 141, and `set -e` aborts the script.
 getenv() {
-    sed -n "s/^$1=//p" "${ENV_FILE}" | head -1 | sed 's/^["'\'']//; s/["'\'']$//'
+    awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' \
+        "${ENV_FILE}" | sed 's/^["'\'']//; s/["'\'']$//'
 }
 
 DB_NAME="$(getenv DB_NAME)";     DB_NAME="${DB_NAME:-egnsitedb}"
@@ -41,13 +62,36 @@ DB_PASSWORD="$(getenv DB_PASSWORD)"
 # ---------------------------------------------------------------------------
 # Generate a password if the placeholder is still in place.
 #
-# Restricted alphabet on purpose: '#' begins a comment in a systemd
-# EnvironmentFile, and '$' is expanded when the file is sourced in a shell --
-# either would silently corrupt the value between here and Django.
+# Restricted alphabet on purpose. Measured behaviour of a '$' in the value:
+#
+#   python-dotenv (Django)   abc$def -> abc$def   OK, only ${...} interpolates
+#   shell `. .env`           abc$def -> abc       TRUNCATED at the $
+#   shell, "abc$def" quoted  abc$def -> abc       TRUNCATED even so
+#
+# '#' is worse: it begins a comment in a systemd EnvironmentFile. Sticking to
+# alphanumerics means the value survives every consumer identically, which
+# matters because a mismatch surfaces only as an opaque 1045 Access denied.
 # ---------------------------------------------------------------------------
-if [[ -z "${DB_PASSWORD}" || "${DB_PASSWORD}" == "replace-me" ]]; then
-    DB_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)"
-    log "Generated a database password and writing it to .env"
+gen_password() {
+    # NOTE: deliberately no `| head -c N`. That makes the upstream producer
+    # take SIGPIPE, which under `set -o pipefail` + `set -e` aborts the script
+    # with exit 141. Consume the generator's output fully, then slice in bash.
+    local raw=""
+    if command -v openssl >/dev/null 2>&1; then
+        raw="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9')"
+    else
+        raw="$(head -c 512 /dev/urandom | tr -dc 'A-Za-z0-9')"
+    fi
+    printf '%s' "${raw:0:32}"
+}
+
+if [[ ${FORCE_NEW_PASSWORD} -eq 1 || -z "${DB_PASSWORD}" || "${DB_PASSWORD}" == "replace-me" ]]; then
+    DB_PASSWORD="$(gen_password)"
+    if [[ ${FORCE_NEW_PASSWORD} -eq 1 ]]; then
+        log "Generating a NEW database password (--new-password)"
+    else
+        log "Generated a database password and writing it to .env"
+    fi
 
     tmp="$(mktemp)"
     if grep -q '^DB_PASSWORD=' "${ENV_FILE}"; then
@@ -63,9 +107,17 @@ else
 fi
 
 case "${DB_PASSWORD}" in
-    *'#'*|*'$'*|*"'"*|*'"'*)
-        echo "WARNING: DB_PASSWORD contains a character that systemd or the"
-        echo "         shell may mangle (# \$ ' \"). Consider replacing it." ;;
+    *"'"*)
+        die "DB_PASSWORD contains a single quote, which would break the SQL
+below. Re-run with:  sudo $0 --new-password" ;;
+    *'#'*|*'$'*|*'\'*|*'\"'*)
+        echo
+        echo "  WARNING: DB_PASSWORD contains one of  # \$ \\ \"  ."
+        echo "           Django reads it correctly, but the value is fragile:"
+        echo "           '\$' truncates if .env is ever sourced in a shell, and"
+        echo "           '#' begins a comment in a systemd EnvironmentFile."
+        echo "           Strongly consider:  sudo $0 --new-password"
+        echo ;;
 esac
 
 # ---------------------------------------------------------------------------

@@ -33,14 +33,19 @@ log() { printf '[set-public-ip] %s\n' "$*"; }
 discover_ip() {
     local ip=""
 
-    # sed rather than `grep -oP`: PCRE mode is unavailable in some locales
+    # awk rather than `grep -oP`: PCRE mode is unavailable in some locales
     # ("grep: -P supports only unibyte and UTF-8 locales") and this has to
     # work under whatever environment systemd hands us.
+    # awk exits after the first match instead of piping into `head`, which
+    # would SIGPIPE the producer and trip pipefail.
     ip="$(curl -fsS -m 5 -H 'Authorization: Bearer Oracle' \
           http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
           | tr ',' '\n' \
-          | sed -n 's/.*"publicIp"[[:space:]]*:[[:space:]]*"\([0-9.]*\)".*/\1/p' \
-          | head -1 || true)"
+          | awk '/"publicIp"/ {
+                     if (match($0, /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)) {
+                         print substr($0, RSTART, RLENGTH); exit
+                     }
+                 }' || true)"
     if [[ -n "${ip}" ]]; then
         log "discovered via OCI metadata: ${ip}"
         printf '%s' "${ip}"
@@ -73,7 +78,12 @@ fi
 # and video would never start, even though the WHEP POST returns success.
 # ---------------------------------------------------------------------------
 if [[ -f "${MTX_CONF}" ]]; then
-    current="$(sed -n 's/^webrtcAdditionalHosts:[[:space:]]*\[\([^]]*\)\].*/\1/p' "${MTX_CONF}" | head -1)"
+    # `sed ... | head -1` would SIGPIPE sed once head exits; awk self-terminates.
+    current="$(awk '/^webrtcAdditionalHosts:/ {
+                        if (match($0, /\[[^]]*\]/)) {
+                            print substr($0, RSTART + 1, RLENGTH - 2); exit
+                        }
+                    }' "${MTX_CONF}")"
     if [[ "${current}" == "${PUBLIC_IP}" ]]; then
         log "mediamtx.yml already correct (${PUBLIC_IP})"
     else
@@ -97,8 +107,9 @@ fi
 #
 if [[ -f "${ENV_FILE}" ]]; then
     if grep -q '^DJANGO_ALLOWED_HOSTS=' "${ENV_FILE}"; then
-        current_line="$(grep '^DJANGO_ALLOWED_HOSTS=' "${ENV_FILE}" | head -1)"
-        current_val="${current_line#DJANGO_ALLOWED_HOSTS=}"
+        current_val="$(awk 'index($0, "DJANGO_ALLOWED_HOSTS=") == 1 {
+                                print substr($0, length("DJANGO_ALLOWED_HOSTS=") + 1); exit
+                            }' "${ENV_FILE}")"
 
         # Keep every hostname; keep loopback; drop other IPv4 literals.
         kept=""

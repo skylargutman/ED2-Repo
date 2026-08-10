@@ -20,10 +20,15 @@ log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 # ---------------------------------------------------------------------------
 log "Checking DNS"
 # ---------------------------------------------------------------------------
-resolved="$(getent hosts "${DOMAIN}" | awk '{print $1}' | head -1 || true)"
+resolved="$(getent hosts "${DOMAIN}" | awk 'NR == 1 { print $1; exit }' || true)"
 mine="$(curl -fsS -m 5 -H 'Authorization: Bearer Oracle' \
         http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
-        | grep -oP '"publicIp"\s*:\s*"\K[0-9.]+' | head -1 || true)"
+        | tr ',' '\n' \
+        | awk '/"publicIp"/ {
+                   if (match($0, /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)) {
+                       print substr($0, RSTART, RLENGTH); exit
+                   }
+               }' || true)"
 
 if [[ -z "${resolved}" ]]; then
     echo "ERROR: ${DOMAIN} does not resolve yet. Wait for the DNS change."

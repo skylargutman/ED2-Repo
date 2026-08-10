@@ -87,8 +87,12 @@ log "Building the virtualenv"
 log "Installing MediaMTX (arm64)"
 # ---------------------------------------------------------------------------
 if ! command -v mediamtx >/dev/null 2>&1; then
+    # awk, not `grep -oP`: PCRE mode is unavailable under some locales
+    # ("grep: -P supports only unibyte and UTF-8 locales").
     MTX_VER="$(curl -fsSL https://api.github.com/repos/bluenviron/mediamtx/releases/latest \
-               | grep -oP '"tag_name":\s*"\K[^"]+')"
+               | tr ',' '\n' \
+               | awk -F'"' '/"tag_name"/ { print $4; exit }')"
+    [[ -n "${MTX_VER}" ]] || { echo "  could not determine MediaMTX version"; exit 1; }
     echo "  installing MediaMTX ${MTX_VER}"
     curl -fsSL -o /tmp/mediamtx.tar.gz \
         "https://github.com/bluenviron/mediamtx/releases/download/${MTX_VER}/mediamtx_${MTX_VER}_linux_arm64.tar.gz"
@@ -132,7 +136,10 @@ cat <<EOF
 
   Public IP (ephemeral, discovered at run time): $(curl -fsS -m 5 \
       -H 'Authorization: Bearer Oracle' http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
-      | grep -oP '"publicIp"\s*:\s*"\K[0-9.]+' | head -1 || echo "${PUBLIC_IP}")
+      | tr ',' '\n' \
+      | awk '/"publicIp"/ { if (match($0, /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)) \
+                            { print substr($0, RSTART, RLENGTH); exit } }' \
+      || echo "${PUBLIC_IP}")
 
   nginx is serving HTTP only for now. Steps 1 and 5 need DNS; everything
   else can be done immediately and tested against the bare IP.
