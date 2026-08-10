@@ -202,11 +202,24 @@ STATIC_ROOT = BASE_DIR / 'collected_static'
 # buttons fail with 403.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Cookies are only marked Secure in production; leaving them Secure during
-# local http:// development silently breaks login.
 SECURE_SSL_REDIRECT = False          # nginx already redirects :80 -> :443
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+
+# Marking cookies Secure tells the browser to send them ONLY over HTTPS -- and
+# to refuse to store them at all over plain HTTP. That makes login impossible
+# while the site is still HTTP-only: the CSRF cookie is never saved and every
+# POST fails with "this site requires a CSRF cookie when submitting forms".
+#
+# Defaults to on in production, but must be overridable, because deployment
+# runs on HTTP first (the TLS nginx config cannot load before certbot has
+# issued a certificate). Set DJANGO_COOKIE_SECURE=False during that window,
+# then remove it once deploy/enable-tls.sh has run.
+_cookie_secure_default = 'False' if DEBUG else 'True'
+COOKIE_SECURE = os.environ.get(
+    'DJANGO_COOKIE_SECURE', _cookie_secure_default
+).lower() in ('1', 'true', 'yes')
+
+SESSION_COOKIE_SECURE = COOKIE_SECURE
+CSRF_COOKIE_SECURE = COOKIE_SECURE
 
 # The deployed origin MUST be listed here or every POST from the dashboard is
 # rejected. The previous config listed only ngrok domains and got away with it

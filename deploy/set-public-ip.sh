@@ -38,19 +38,25 @@ discover_ip() {
     # work under whatever environment systemd hands us.
     # awk exits after the first match instead of piping into `head`, which
     # would SIGPIPE the producer and trip pipefail.
-    ip="$(curl -fsS -m 5 -H 'Authorization: Bearer Oracle' \
-          http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
-          | tr ',' '\n' \
-          | awk '/"publicIp"/ {
-                     if (match($0, /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)) {
-                         print substr($0, RSTART, RLENGTH); exit
-                     }
-                 }' || true)"
-    if [[ -n "${ip}" ]]; then
-        log "discovered via OCI metadata: ${ip}"
-        printf '%s' "${ip}"
-        return 0
-    fi
+    #
+    # v2 requires the Bearer header; v1 is unauthenticated and still present
+    # on some images. Try both before reaching out to the internet.
+    local url
+    for url in "http://169.254.169.254/opc/v2/vnics/" \
+               "http://169.254.169.254/opc/v1/vnics/"; do
+        ip="$(curl -fsS -m 5 -H 'Authorization: Bearer Oracle' "${url}" 2>/dev/null \
+              | tr ',' '\n' \
+              | awk '/"publicIp"/ {
+                         if (match($0, /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)) {
+                             print substr($0, RSTART, RLENGTH); exit
+                         }
+                     }' || true)"
+        if [[ -n "${ip}" ]]; then
+            log "discovered via OCI metadata ${url##*169.254.169.254}: ${ip}"
+            printf '%s' "${ip}"
+            return 0
+        fi
+    done
 
     # Fallback for non-OCI hosts or if the metadata service is unreachable.
     for svc in https://api.ipify.org https://ifconfig.me/ip; do
