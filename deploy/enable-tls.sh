@@ -62,16 +62,15 @@ fi
 
 certbot "${certbot_args[@]}"
 
-# certbot ships options-ssl-nginx.conf and ssl-dhparams.pem, which the TLS
-# config includes. Generate the dhparam if this install lacks it.
-if [[ ! -f /etc/letsencrypt/ssl-dhparams.pem ]]; then
-    log "Generating dhparams (this takes a minute)"
-    openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
-fi
-
 # ---------------------------------------------------------------------------
 log "Swapping in the TLS config"
 # ---------------------------------------------------------------------------
+# The TLS server blocks include this snippet rather than certbot's
+# options-ssl-nginx.conf, which only exists if the nginx plugin has run.
+install -d -m 0755 /etc/nginx/snippets
+install -m 0644 "${REPO}/deploy/nginx/egnsite-ssl.conf" \
+                /etc/nginx/snippets/egnsite-ssl.conf
+
 install -m 0644 "${REPO}/deploy/nginx/sciencelabtoyou.conf" \
                 /etc/nginx/sites-available/sciencelabtoyou
 
