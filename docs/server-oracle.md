@@ -111,9 +111,13 @@ It then prints the manual steps, which are interactive by nature:
 
 1. **DNS** — point `sciencelabtoyou.com` A → the instance IP, confirm with
    `dig +short sciencelabtoyou.com`
-2. **Database** — create `egnsitedb` and the `egnsite` user
-3. **Secrets** — `cp deploy/env.example deploy/.env`, generate a fresh
-   `DJANGO_SECRET_KEY`, set the DB password
+2. **Secrets** — `cp deploy/env.example deploy/.env`, set a fresh
+   `DJANGO_SECRET_KEY`
+3. **Database** — `sudo deploy/setup-db.sh` (generates the DB password, writes
+   it into `.env`, verifies the login). **The `sudo` is required** — MariaDB's
+   root account uses `unix_socket` auth, so a bare `mariadb` fails with
+   `ERROR 1698 ... 'ubuntu'@'localhost'`, which looks like a password problem
+   but isn't.
 4. **Migrate** — `manage.py migrate`, `collectstatic`, `createsuperuser`
 5. **Start** — `sudo systemctl enable --now egnsite-web egnsite-mqtt mediamtx`
 6. **TLS, later** — `sudo deploy/enable-tls.sh` once DNS resolves here

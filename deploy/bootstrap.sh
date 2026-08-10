@@ -119,7 +119,7 @@ sudo install -m 0644 "${REPO}/deploy/nginx/sciencelabtoyou-http.conf" /etc/nginx
 sudo ln -sf /etc/nginx/sites-available/sciencelabtoyou /etc/nginx/sites-enabled/sciencelabtoyou
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo mkdir -p /var/www/certbot
-sudo chmod +x "${REPO}/deploy/enable-tls.sh"
+sudo chmod +x "${REPO}/deploy/enable-tls.sh" "${REPO}/deploy/setup-db.sh" "${REPO}/deploy/set-public-ip.sh"
 
 # Redis and MariaDB stay bound to loopback; nothing external should reach them.
 sudo systemctl enable --now redis-server mariadb mosquitto
@@ -140,17 +140,21 @@ cat <<EOF
   1. Point DNS:  sciencelabtoyou.com  A  <the IP above>
      Wait for it to resolve:  dig +short sciencelabtoyou.com
 
-  2. Create the database and user:
-       sudo mariadb
-         CREATE DATABASE egnsitedb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-         CREATE USER 'egnsite'@'localhost' IDENTIFIED BY '<pick-a-strong-password>';
-         GRANT ALL PRIVILEGES ON egnsitedb.* TO 'egnsite'@'localhost';
-         FLUSH PRIVILEGES;
-
-  3. Create the secrets file:
+  2. Create the secrets file:
        cp ${REPO}/deploy/env.example ${REPO}/deploy/.env
        chmod 600 ${REPO}/deploy/.env
-       \$EDITOR ${REPO}/deploy/.env     # new SECRET_KEY + the DB password above
+       \$EDITOR ${REPO}/deploy/.env     # set a new DJANGO_SECRET_KEY
+
+     Generate a secret key with:
+       /opt/ed2/venv/bin/python -c \\
+         "from django.core.management.utils import get_random_secret_key as k; print(k())"
+
+  3. Create the database and user:
+       sudo ${REPO}/deploy/setup-db.sh
+
+     Generates a DB password, writes it into .env, and verifies the login.
+     NOTE the sudo: MariaDB's root account uses unix_socket auth, so a bare
+     'mariadb' fails with "Access denied for user 'ubuntu'@'localhost'".
 
   4. Migrate and collect static:
        cd ${REPO}/WebInterface

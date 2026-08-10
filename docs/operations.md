@@ -150,6 +150,53 @@ set -a; . ../deploy/.env; set +a
   "from MatlabApp.models import ControlLock; ControlLock.objects.all().delete()"
 ```
 
+### `ERROR 1698 (28000): Access denied for user 'ubuntu'@'localhost'`
+
+You ran `mariadb` without `sudo`. MariaDB's root account on Ubuntu uses the
+**`unix_socket`** auth plugin — it authenticates by OS user, not password — so
+a bare `mariadb` tries to log in as your shell user, which is not a DB user.
+
+```bash
+sudo mariadb          # correct
+mariadb               # ERROR 1698
+```
+
+To connect as the *application* user, name the user and database explicitly:
+
+```bash
+mariadb -u egnsite -p egnsitedb
+```
+
+(`mariadb egnsite@localhost` doesn't do what it looks like — the argument is
+read as a database name.)
+
+### `(1045, "Access denied for user 'egnsite'@'localhost'")` from Django
+
+The DB user doesn't exist, or its password doesn't match `deploy/.env`. Fix
+both at once — this is idempotent and re-syncs the password:
+
+```bash
+sudo /opt/ed2/ED2-Repo/deploy/setup-db.sh
+```
+
+To diagnose by hand, first prove the DB side works independently of Django:
+
+```bash
+mariadb -u egnsite -p egnsitedb -e "SELECT 1;"
+grep '^DB_' /opt/ed2/ED2-Repo/deploy/.env
+```
+
+Two things that produce this error even when the password *looks* right:
+
+- **`#` or `$` in the password.** `#` starts a comment in a systemd
+  `EnvironmentFile`, and `$` is expanded when you `. .env` in a shell — so
+  Django receives a truncated or altered value. `setup-db.sh` generates
+  alphanumeric-only passwords to avoid this.
+- **`localhost` vs `127.0.0.1`.** MariaDB treats them as different hosts.
+  `.env` sets `DB_HOST=127.0.0.1` (TCP), which only matches a `@'localhost'`
+  grant because the server reverse-resolves the address. `setup-db.sh` grants
+  to both hosts so this can't bite.
+
 ### CSRF verification failed on POST
 
 `DJANGO_CSRF_TRUSTED_ORIGINS` in `deploy/.env` doesn't include the origin
