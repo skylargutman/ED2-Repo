@@ -200,6 +200,26 @@ Two things that produce this error even when the password *looks* right:
   grant because the server reverse-resolves the address. `setup-db.sh` grants
   to both hosts so this can't bite.
 
+### `sudo: deploy/<script>.sh: command not found`
+
+The file isn't executable. The scripts are committed mode 755, but a checkout
+taken before that was fixed — or any clone where `core.filemode` is off — can
+land them `644`. `sudo` then can't exec them and reports "command not found",
+which reads like a missing file.
+
+```bash
+chmod +x /opt/ed2/ED2-Repo/deploy/*.sh
+```
+
+Or bypass it for one run by invoking the interpreter explicitly:
+
+```bash
+sudo bash deploy/setup-db.sh --new-password
+```
+
+`bootstrap.sh` now asserts the bit after every clone/pull, so this is
+self-correcting once you have run it again.
+
 ### Access denied (1045) after `setup-db.sh` succeeded — and `sudo` "fixes" it
 
 The tell-tale symptom: `manage.py migrate` fails as `ubuntu` but works under

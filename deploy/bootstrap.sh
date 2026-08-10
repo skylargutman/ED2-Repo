@@ -75,6 +75,13 @@ else
     git -C "${REPO}" sparse-checkout set WebInterface picamera picontrol deploy docs
 fi
 
+# The scripts are committed mode 755, but a checkout made before that fix (or
+# any clone where core.filemode is off) can land them non-executable, which
+# shows up as the confusing "sudo: deploy/setup-db.sh: command not found".
+# Assert it here rather than trusting the checkout -- and do it BEFORE any of
+# them is invoked below.
+chmod +x "${REPO}"/deploy/*.sh
+
 # ---------------------------------------------------------------------------
 log "Building the virtualenv"
 # ---------------------------------------------------------------------------
@@ -105,7 +112,6 @@ sudo install -m 0644 "${REPO}/deploy/mediamtx/mediamtx.yml" /usr/local/etc/media
 
 # The public IP is ephemeral, so discover the real one rather than trusting
 # the literal committed in mediamtx.yml.
-sudo install -m 0755 "${REPO}/deploy/set-public-ip.sh" "${REPO}/deploy/set-public-ip.sh"
 sudo "${REPO}/deploy/set-public-ip.sh" || echo "  (IP sync failed; check manually)"
 
 # ---------------------------------------------------------------------------
@@ -123,7 +129,7 @@ sudo install -m 0644 "${REPO}/deploy/nginx/sciencelabtoyou-http.conf" /etc/nginx
 sudo ln -sf /etc/nginx/sites-available/sciencelabtoyou /etc/nginx/sites-enabled/sciencelabtoyou
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo mkdir -p /var/www/certbot
-sudo chmod +x "${REPO}/deploy/enable-tls.sh" "${REPO}/deploy/setup-db.sh" "${REPO}/deploy/set-public-ip.sh"
+chmod +x "${REPO}"/deploy/*.sh
 
 # Redis and MariaDB stay bound to loopback; nothing external should reach them.
 sudo systemctl enable --now redis-server mariadb mosquitto
