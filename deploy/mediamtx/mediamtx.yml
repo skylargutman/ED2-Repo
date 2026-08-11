@@ -79,3 +79,7 @@ paths:
   pendulum:
 
   all_others:
+
+# Disable moq as it is not used.
+# Causes permission issues with trying to generate the certificates - alex
+moq: false
