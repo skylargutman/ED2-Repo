@@ -456,23 +456,3 @@ def run_daemon():
 if __name__ == "__main__":
     run_daemon()
 
-# =============================================================================
-# systemd service unit file template
-# Save as /etc/systemd/system/dac_daemon.service
-# Then: sudo systemctl enable dac_daemon && sudo systemctl start dac_daemon
-#
-# [Unit]
-# Description=Pi DAC Daemon — inverted pendulum motor neutral control
-# After=network-online.target
-# Wants=network-online.target
-#
-# [Service]
-# ExecStart=/usr/bin/python3 /home/owlsley/picontrol/scripts/dac_daemon.py
-# Restart=always
-# RestartSec=5
-# User=owlsley
-#
-# [Install]
-# WantedBy=multi-user.target
-# =============================================================================
-
