@@ -59,7 +59,7 @@ VREF            = 5.14      # measured/calibrated Vref on this specific MCP4725 
 NEUTRAL_VOLTAGE = 2.5       # volts — motor controller idle
 
 # GPIO chip (Pi 5 uses gpiochip0 / pinctrl-rp1)
-GPIO_CHIP       = 0
+GPIO_CHIP       = 15 # this was previously 0, but it should be 15 for the Pi 5 ?? - alex
 GPIO_SYSREADY   = 6         # → ESP32 #1 GPIO 33 : owned by Simulink, not claimed here
 GPIO_HOME_START = 16        # → ESP32 #2 GPIO  4 : homing start trigger
 GPIO_STOP       = 20        # → ESP32 #2 GPIO  5 : stop trigger
@@ -399,7 +399,7 @@ def run_daemon():
         _gpio_handle = lgpio.gpiochip_open(GPIO_CHIP)
         log.info(f"GPIO chip {GPIO_CHIP} opened")
     except Exception as e:
-        log.error(f"Failed to open GPIO chip: {e}")
+        log.error(f"Failed to open GPIO chip {GPIO_CHIP}: {e}")
         sys.exit(1)
 
     # --- Configure GPIO pins ---
