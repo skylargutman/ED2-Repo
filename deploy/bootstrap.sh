@@ -15,7 +15,6 @@ set -euo pipefail
 REPO_URL="https://github.com/skylargutman/ED2-Repo.git"
 BASE="/opt/ed2"
 REPO="${BASE}/ED2-Repo"
-VENV="${BASE}/venv"
 PUBLIC_IP="129.153.42.213"
 
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
@@ -73,11 +72,12 @@ fi
 chmod +x "${REPO}"/deploy/*.sh
 
 # ---------------------------------------------------------------------------
-log "Building the virtualenv"
+log "Downloading uv to manage project dependencies"
 # ---------------------------------------------------------------------------
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # update env so we can find the new binary
 source $HOME/.local/bin/env
+log "Downloading & syncing project dependencies"
 uv sync --project "${REPO}/WebInterface" --frozen
 
 # ---------------------------------------------------------------------------
@@ -161,9 +161,9 @@ cat <<EOF
 
   4. Migrate and collect static:
        cd ${REPO}/WebInterface
-       ${VENV}/bin/python manage.py migrate
-       ${VENV}/bin/python manage.py collectstatic --noinput
-       ${VENV}/bin/python manage.py createsuperuser
+       uv run manage.py migrate
+       uv run manage.py collectstatic --noinput
+       uv run manage.py createsuperuser
 
   5. Start everything:
        sudo systemctl enable --now egnsite-web egnsite-mqtt mediamtx
