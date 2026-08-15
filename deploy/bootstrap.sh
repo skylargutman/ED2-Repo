@@ -75,10 +75,10 @@ chmod +x "${REPO}"/deploy/*.sh
 # ---------------------------------------------------------------------------
 log "Building the virtualenv"
 # ---------------------------------------------------------------------------
-# Lives OUTSIDE the repo so `git pull` can never collide with it.
-[[ -d "${VENV}" ]] || python3 -m venv "${VENV}"
-"${VENV}/bin/pip" install --upgrade pip wheel
-"${VENV}/bin/pip" install -r "${REPO}/WebInterface/requirements.txt"
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# update env so we can find the new binary
+source $HOME/.local/bin/env
+uv sync --project "${REPO}/WebInterface"
 
 # ---------------------------------------------------------------------------
 log "Installing MediaMTX (arm64)"

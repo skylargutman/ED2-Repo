@@ -32,7 +32,7 @@ EnvironmentFile=/opt/ed2/ED2-Repo/deploy/.env
 # sitting in a pipe buffer -- this script's logging is all print().
 Environment=PYTHONUNBUFFERED=1
 
-ExecStart=/opt/ed2/venv/bin/python /opt/ed2/ED2-Repo/WebInterface/mqtt_subscriber.py
+ExecStart=/opt/ed2/ED2-Repo/WebInterface/.venv/bin/python /opt/ed2/ED2-Repo/WebInterface/mqtt_subscriber.py
 
 Restart=always
 RestartSec=10

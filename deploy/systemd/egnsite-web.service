@@ -32,7 +32,7 @@ RuntimeDirectoryMode=0750
 # umask 007 makes the socket group-writable so nginx (www-data) can reach it.
 UMask=007
 
-ExecStart=/opt/ed2/venv/bin/gunicorn \
+ExecStart=/opt/ed2/ED2-Repo/WebInterface/.venv/bin/gunicorn \
     --name egnsite \
     --workers 3 \
     --worker-class uvicorn.workers.UvicornWorker \

@@ -1,14 +1,12 @@
 
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
-from django.http import StreamingHttpResponse
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages as django_messages
 from .models import Command, Message
 from .mqtt_utils import send_command
 import json
-import requests
 from .models import ExperimentSession
 from functools import wraps
 
