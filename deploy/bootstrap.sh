@@ -78,7 +78,7 @@ log "Building the virtualenv"
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # update env so we can find the new binary
 source $HOME/.local/bin/env
-uv sync --project "${REPO}/WebInterface"
+uv sync --project "${REPO}/WebInterface" --frozen
 
 # ---------------------------------------------------------------------------
 log "Installing MediaMTX (arm64)"
