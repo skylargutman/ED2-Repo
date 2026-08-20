@@ -5,7 +5,7 @@ to bite during the redeploy.
 
 ---
 
-## 1. 🔴 Nothing in this repo publishes telemetry to `raspi/to_django`
+## 1. 🔴 Nothing in this repo publishes telemetry to `raspi/to_django` -- Answered
 
 **The live sensor graph has no identified data source.**
 
@@ -20,10 +20,8 @@ repo for a publisher to that topic finds nothing:
 So the publisher is either a Simulink MQTT block inside the `.elf` models, or a
 script on the control Pi that was never committed.
 
-**Needed:** on the control Pi, run
-`mosquitto_sub -h sciencelabtoyou.com -p 1885 -t 'raspi/to_django' -v` during an
-experiment. If data appears, find the publisher and commit it. If it doesn't,
-the graph never worked and needs building.
+**Answer (from alex):**
+* Sensor data is dispatched over MQTT directly from the Simulink models. 
 
 ## 2. ✅ `mqtt_subscriber.py` migrated to the paho 2.x callback API — RESOLVED
 
@@ -115,6 +113,9 @@ Options, cheapest first:
 
 Option 1 is probably the right trade for a lab rig, if the campus IP is stable.
 
+Response (from alex):
+* This will be addressed in a Week 1 task.
+
 ## 6. 🟡 `production_settings.py` is stale and unused
 
 It sets `ALLOWED_HOSTS = ['domain.com', 'pc-ip-address', ...]` — placeholders,
@@ -136,7 +137,7 @@ The variable is `cmd`. Only reachable on an unrecognised command, and the outer
 `try` swallows it — so the effect is a lost warning, not a crash. Worth fixing
 next time that file is touched.
 
-## 8. 🟢 Model path disagreement
+## 8. 🟢 Model path disagreement -- Answered
 
 | File | Path |
 |---|---|
@@ -146,12 +147,19 @@ next time that file is touched.
 `dac_daemon.py` is the one in service. Worth confirming which directory
 actually holds the `.elf` files, and correcting the other.
 
-## 9. 🟢 `RemoteControl.cpp` has an unconditional early `return`
+Answer (from alex):
+* Both directories have the models and are symlinked.
+* However, the legacy `RemoteControl.cpp` stuff can be ignored and removed.
+
+## 9. 🟢 `RemoteControl.cpp` has an unconditional early `return` -- Answered
 
 `dispatch_to_simulink()` returns before its `system()` call, so it prints
 parameters and never launches a model. Consistent with the file being a parked
 alternative to `dac_daemon.py` rather than live code — but it should be either
 finished, or clearly marked dead so nobody deploys it.
+
+Answer (from alex):
+* The legacy `RemoteControl.cpp` stuff can be ignored and removed.
 
 ## 10. 🟢 Lost management-command sources
 
@@ -165,9 +173,4 @@ of value is lost; the `.pyc` files are now gitignored.
 
 ## Decisions still needed
 
-1. **Find the `raspi/to_django` publisher** (issue #1) — still the one thing
-   blocking the live graph.
-2. Lock down MQTT — IP allowlist, passwords, or leave open? (issue #5)
-3. Delete `production_settings.py`? (issue #6)
-4. Should the camera Pi's `stream.sh` and `autossh-tunnel.service` in
-   `picamera/` be updated in git to `ubuntu@`, so the repo matches reality?
+1. Delete `production_settings.py`? (issue #6)
