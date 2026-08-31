@@ -1,6 +1,6 @@
 // =============================================================================
 // ESP32 #2 — Motor Control Firmware
-// Version: 9.5
+// Version: 9.6
 // Description: Controls BTS7960 IBT-2 H-bridge motor driver.
 //              Holds motor outputs LOW at boot to prevent runaway on power-up.
 //              Waits for START button OR Pi GPIO trigger before homing.
