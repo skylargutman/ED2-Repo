@@ -1,0 +1,39 @@
+.experiment-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 2px solid #dee2e6;
+    height: 100%;
+}
+
+.experiment-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+    border-color: #0d6efd;
+}
+
+.experiment-card.active {
+    background-color: #e7f3ff;
+    border-color: #0d6efd;
+}
+
+.experiment-card .card-body {
+    padding: 30px;
+    text-align: center;
+}
+
+.experiment-title {
+    font-size: 1.3rem;
+    font-weight: bold;
+    color: #212529;
+}
+
+.coming-soon {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.coming-soon:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: #dee2e6;
+}
