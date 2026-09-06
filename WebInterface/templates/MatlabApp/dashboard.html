@@ -10,34 +10,34 @@
         border: 2px solid #dee2e6;
         height: 100%;
     }
-    
+
     .experiment-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 8px 16px rgba(0,0,0,0.2);
         border-color: #0d6efd;
     }
-    
+
     .experiment-card.active {
         background-color: #e7f3ff;
         border-color: #0d6efd;
     }
-    
+
     .experiment-card .card-body {
         padding: 30px;
         text-align: center;
     }
-        
+
     .experiment-title {
         font-size: 1.3rem;
         font-weight: bold;
         color: #212529;
     }
-    
+
     .coming-soon {
         opacity: 0.6;
         cursor: not-allowed;
     }
-    
+
     .coming-soon:hover {
         transform: none;
         box-shadow: none;
@@ -59,148 +59,41 @@
     <!-- Experiment Selection Grid -->
     <div class="row g-4">
         <!-- Experiment 1: Cart Control -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'CartControl' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Cart Control</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="CartControl" name="Cart Control" %}
 
         <!-- Experiment 2: TestCartPend1 -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'TestCartPend1' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">TestCartPend1</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="TestCartPend1" name="TestCartPend1") %}
 
         <!-- Experiment 3: Crane Ident -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'CraneIdent' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Crane Ident</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="CraneIdent" name="Crane Ident") %}
 
         <!-- Experiment 4: Crane Stab -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'CraneStab' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Crane Stab</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="CraneStab" name="Crane Stab") %}
 
         <!-- Experiment 5: InvPend Ident -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'InvPendIdent' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">InvPend Ident</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="InvPendIdent" name="InvPend Ident") %}
 
         <!-- Experiment 6: PendStab PD -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'PendStabPD' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">PendStab PD</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="PendStabPD" name="PendStab PD" %}
 
         <!-- Experiment 7: Pend Swing Up -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'PendSwingUp' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Pend Swing Up</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="PendSwingUp" name="Pend Swing Up" %}
 
         <!-- Experiment 8: Pendulum Friction -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'PendulumFriction' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Pendulum Friction</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="PendulumFriction" name="Pendulum Friction" %}
 
         <!-- Experiment 9: SwingHoldPendulum  -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'SwingHoldPendulum' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Swing Hold Pendulum</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="SwingHoldPendulum" name="Swing Hold Pendulum" %}
 
         <!-- Experiment 10: SwingHoldPendulum Extra -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'SwingHoldPendulumExtra' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Swing Hold Pendulum Extra</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="SwingHoldPendulumExtra" name="Swing Hold Pendulum Extra" %}
 
         <!-- Experiment 11: UpDown Pendulum -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'UpDownPendulum' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">UpDown Pendulum</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="UpDownPendulum" name="UpDown Pendulum" %}
 
         <!-- Experiment 12: Pendulum Test -->
-        <div class="col-lg-3 col-md-4 col-sm-6">
-            <a href="{% url 'experiment_run_dynamic' 'PendulumTest' %}" class="text-decoration-none">
-                <div class="experiment-card card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="experiment-title">Pendulum Test</h5>
-                        <span class="badge bg-success">Available</span>
-                    </div>
-                </div>
-            </a>
-        </div>
+        {% include 'snippets/experiment.html' with id="PendulumTest" name="Pendulum Test" %}
+    </div>
 
     <!-- System Status Footer -->
     <div class="row mt-5 mb-4">
@@ -224,14 +117,15 @@
         </div>
     </div>
 </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
+<!--
 <script>
 // Auto-refresh status every 30 seconds
 setTimeout(function() {
     location.reload();
 }, 30000);
 </script>
+-->
 {% endblock %}
