@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      dockerfile: ../docker/backend/Dockerfile
+      context: ../WebInterface
+    depends_on: 
+      database:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${HOST_BACKEND_DIR}
+        target: ${IMG_BACKEND_DIR}
+    environment:
+      DB_HOST: database
+      DB_PORT: 3306
+    ports:
+      - "8000:8000"
+  database:
+    image: mysql
+    environment:
+      MYSQL_DATABASE: mydb
+      MYSQL_PASSWORD: thissucks
+      MYSQL_USER: petera
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+

@@ -1,0 +1,40 @@
+#!/bin/bash
+
+ROOT_DIR=/home/peter/ED2-Repo
+PYTH_PATH=/home/lab_instruments/web-venv/bin/python
+
+build_env_file () {
+	echo "Building .env file ..."
+
+	read -p "Do you want to pass a root enviroment variable to this prompt [y/n]? (If not you can set the variable in this file to ignore this prompt): " pass_var
+
+	if [[ $pass_var == "y" || $pass_var == "yes" ]]; then
+		read -p "Type the path for the ED2-Repo Root Directory: " root_dir
+		ROOT_DIR=$root_dir
+	fi
+
+	cat <<-EOF > .env 
+	ROOT_DIR=$ROOT_DIR 
+	HOST_BACKEND_DIR=\${ROOT_DIR}/WebInterface
+	IMG_BACKEND_DIR=/home/lab_instruments/backend-app
+	BACKEND_IMG=\${ROOT_DIR}/docker/backend
+	EOF
+}
+
+
+build_env_file
+
+echo "Running compose in the background ..."
+docker compose up &
+
+
+should_migrate=$(docker compose logs | grep StatReloader)
+until  [[ ! -z $should_migrate ]] 
+do
+	sleep 1
+	should_migrate=$(docker compose logs | grep StatReloader)
+done
+
+echo "Running migrations with python ..."
+docker compose exec backend $PYTH_PATH manage.py migrate
+

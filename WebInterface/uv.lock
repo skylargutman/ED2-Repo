@@ -2,10 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
-[options]
-exclude-newer = "2026-08-08T02:22:05.6019039Z"
-exclude-newer-span = "P1W"
-
 [[package]]
 name = "anyio"
 version = "4.14.2"
