@@ -34,7 +34,22 @@
                                    value="{{ prefillUser }}"
                                     {% endif %}
                             >
-                            <div class="form-text">(May be switched to FAU credentials later)</div>
+                        </div>
+
+                        <!-- Email Field -->
+                        <div class="mb-3">
+                            <label for="id_email" class="form-label">Email</label>
+                            <input type="email"
+                                   name="email"
+                                   id="id_email"
+                                   class="form-control form-control-lg"
+                                   placeholder="Your FAU Email"
+                                   required
+                                   autofocus
+                                    {% if prefillEmail %}
+                                   value="{{ prefillEmail }}"
+                                    {% endif %}
+                            >
                         </div>
 
                         <!-- Password Field -->
@@ -52,7 +67,7 @@
                                    value="{{ prefillPassword }}"
                                     {% endif %}
                             >
-                            <div class="form-text">Minimum 8 characters recommended</div>
+                            <div class="form-text">Minimum 8 characters</div>
                         </div>
 
                         <!-- Role Selection -->
