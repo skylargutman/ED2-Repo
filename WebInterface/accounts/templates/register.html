@@ -3,63 +3,80 @@
 {% block title %}Register{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-md-5">
-        <div class="card shadow">
-            <div class="card-header bg-success text-white text-center">
-                <h3 class="mb-0"> Create Account</h3>
-            </div>
-            <div class="card-body p-4">
-                <form method="POST">
-                    {% csrf_token %}
-                    
-                    <!-- Username Field -->
-                    <div class="mb-3">
-                        <label for="id_username" class="form-label">Username</label>
-                        <input type="text" 
-                               name="username" 
-                               id="id_username" 
-                               class="form-control form-control-lg" 
-                               placeholder="Choose a username" 
-                               required 
-                               autofocus>
-                        <div class="form-text">(May be switched to FAU credentials later)</div>
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-5">
+            {% if error %}
+                <div class="card shadow">
+                    <div class="card-header bg-danger text-white text-center">
+                        {{ error }}
                     </div>
-                    
-                    <!-- Password Field -->
-                    <div class="mb-3">
-                        <label for="id_password" class="form-label">Password</label>
-                        <input type="password" 
-                               name="password" 
-                               id="id_password" 
-                               class="form-control form-control-lg" 
-                               placeholder="Choose a password" 
-                               required>
-                        <div class="form-text">Minimum 8 characters recommended</div>
-                    </div>
-                    
-                    <!-- Role Selection -->
-                    <div class="mb-4">
-                        <label for="id_role" class="form-label">Role</label>
-                        <select name="role" id="id_role" class="form-select form-select-lg" required>
-                            <option value="student" selected> Student</option>
-                            <option value="instructor"> Instructor</option>
-                        </select>
-                        <div class="form-text">Select a role</div>
-                    </div>
-                    
-                    <!-- Register Button -->
-                    <button type="submit" class="btn btn-success btn-lg w-100 mb-3">
-                        Create Account
-                    </button>
-                </form>
-            </div>
-            <div class="card-footer text-center bg-light">
-                <p class="mb-0">Already have an account? 
-                    <a href="{% url 'login' %}" class="btn btn-outline-primary btn-sm">Login here</a>
-                </p>
+                </div>
+            {% endif %}
+            <div class="card shadow">
+                <div class="card-header bg-success text-white text-center">
+                    <h3 class="mb-0"> Create Account</h3>
+                </div>
+                <div class="card-body p-4">
+                    <form method="POST">
+                        {% csrf_token %}
+
+                        <!-- Username Field -->
+                        <div class="mb-3">
+                            <label for="id_username" class="form-label">Username</label>
+                            <input type="text"
+                                   name="username"
+                                   id="id_username"
+                                   class="form-control form-control-lg"
+                                   placeholder="Choose a username"
+                                   required
+                                   autofocus
+                                    {% if prefillUser %}
+                                   value="{{ prefillUser }}"
+                                    {% endif %}
+                            >
+                            <div class="form-text">(May be switched to FAU credentials later)</div>
+                        </div>
+
+                        <!-- Password Field -->
+                        <div class="mb-3">
+                            <label for="id_password" class="form-label">Password</label>
+                            <input type="password"
+                                   name="password"
+                                   id="id_password"
+                                   class="form-control form-control-lg"
+                                   placeholder="Choose a password"
+                                   required
+                                   minlength="8"
+                                   autocomplete="new-password"
+                                    {% if prefillPassword %}
+                                   value="{{ prefillPassword }}"
+                                    {% endif %}
+                            >
+                            <div class="form-text">Minimum 8 characters recommended</div>
+                        </div>
+
+                        <!-- Role Selection -->
+                        <div class="mb-4">
+                            <label for="id_role" class="form-label">Role</label>
+                            <select name="role" id="id_role" class="form-select form-select-lg" required>
+                                <option value="student" selected> Student</option>
+                                <option value="instructor"> Instructor</option>
+                            </select>
+                            <div class="form-text">Select a role</div>
+                        </div>
+
+                        <!-- Register Button -->
+                        <button type="submit" class="btn btn-success btn-lg w-100 mb-3">
+                            Create Account
+                        </button>
+                    </form>
+                </div>
+                <div class="card-footer text-center bg-light">
+                    <p class="mb-0">Already have an account?
+                        <a href="{% url 'login' %}" class="btn btn-outline-primary btn-sm">Login here</a>
+                    </p>
+                </div>
             </div>
         </div>
     </div>
-</div>
 {% endblock %}

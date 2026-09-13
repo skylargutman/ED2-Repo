@@ -1,22 +1,32 @@
-from django.shortcuts import render, redirect
-from django.contrib.auth import login, authenticate, logout
-from django.contrib.auth.forms import AuthenticationForm
 from django.contrib import messages
-from .models import CustomUser
+from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import AuthenticationForm
+from django.shortcuts import render, redirect
 
-#Handles storing registration info and sending new user to login page
+from .models import CustomUser
+
+
+# Handles storing registration info and sending new user to dashboard page
 def register(request):
     if request.method == "POST":
         username = request.POST['username']
         password = request.POST['password']
         role = request.POST['role']
+
+        if CustomUser.objects.filter(username=username).exists():
+            messages.error(request, 'Username is already taken!', extra_tags='danger')
+            context = {"prefillUser": username, "prefillPassword": password}
+            return render(request, 'register.html', context)
+
         user = CustomUser.objects.create_user(username=username, password=password, role=role)
         messages.success(request, "Account created successfully!")
-        return redirect('login')
+        login(request, user)
+        return redirect('dashboard')
     return render(request, 'register.html')
 
-#Check existing user data and login w/ Django's built-in login
+
+# Check existing user data and login w/ Django's built-in login
 def login_view(request):
     if request.method == "POST":
         form = AuthenticationForm(request, data=request.POST)
@@ -28,17 +38,19 @@ def login_view(request):
         form = AuthenticationForm()
     return render(request, 'login.html', {'form': form})
 
-#Django built-in logout
+
+# Django built-in logout
 @login_required
 def logout_view(request):
-    #Clear any active control locks for this user when they log out
+    # Clear any active control locks for this user when they log out
     from MatlabApp.models import ControlLock
     ControlLock.objects.filter(
         session_key=request.session.session_key
     ).delete()
-    
+
     logout(request)
     return redirect('login')
+
 
 def demo_login(request):
     from accounts.models import CustomUser
