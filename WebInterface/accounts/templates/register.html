@@ -30,6 +30,7 @@
                                    placeholder="Choose a username"
                                    required
                                    autofocus
+                                   autocomplete="username"
                                     {% if prefillUser %}
                                    value="{{ prefillUser }}"
                                     {% endif %}
@@ -43,13 +44,15 @@
                                    name="email"
                                    id="id_email"
                                    class="form-control form-control-lg"
-                                   placeholder="Your FAU Email"
+                                   placeholder="Enter your FAU email"
                                    required
                                    autofocus
+                                   autocomplete="email"
                                     {% if prefillEmail %}
                                    value="{{ prefillEmail }}"
                                     {% endif %}
                             >
+                            <div class="form-text">You will have to verify your email for access.</div>
                         </div>
 
                         <!-- Password Field -->
@@ -67,7 +70,7 @@
                                    value="{{ prefillPassword }}"
                                     {% endif %}
                             >
-                            <div class="form-text">Minimum 8 characters</div>
+                            <div class="form-text">Minimum 8 characters.</div>
                         </div>
 
                         <!-- Role Selection -->
@@ -77,7 +80,7 @@
                                 <option value="student" selected> Student</option>
                                 <option value="instructor"> Instructor</option>
                             </select>
-                            <div class="form-text">Select a role</div>
+                            <div class="form-text">Select a role.</div>
                         </div>
 
                         <!-- Register Button -->

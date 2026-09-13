@@ -1,10 +1,19 @@
+import json
+import os
+import secrets
+
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
+from django.http import HttpResponse
 from django.shortcuts import render, redirect
+from django.views.decorators.csrf import csrf_exempt
 
 from .models import CustomUser, RoleRequest
+
+EMAIL_VERIFICATION_SECRET = os.environ["EMAIL_VERIFICATION_SECRET"]
+EMAIL_VERIFICATION_LINK = os.environ["EMAIL_VERIFICATION_LINK"]
 
 
 # Handles storing registration info and sending new user to dashboard page
@@ -54,6 +63,42 @@ def logout_view(request):
 
     logout(request)
     return redirect('login')
+
+
+@csrf_exempt
+def verify_email_view(request):
+    if not request.method == "POST":
+        return HttpResponse(status=400)
+    if request.content_type != "application/json":
+        return HttpResponse(status=415)
+
+    from accounts.models import CustomUser
+    data = json.loads(request.body)
+    secret_key = data["secret"]
+    email = data["email"]
+    username = data["username"]
+
+    if not secrets.compare_digest(secret_key, EMAIL_VERIFICATION_SECRET):
+        return HttpResponse(status=400)
+
+    query = CustomUser.objects.filter(username=username, email=email, role="view_only")
+    if not query.exists():
+        return HttpResponse(status=404)
+
+    user = query.get()
+    print("Received email verification for", user)
+    user.is_viewer = False
+
+    roleRequestQuery = RoleRequest.objects.filter(user=user)
+    if roleRequestQuery.exists():
+        roleRequest = roleRequestQuery.get()
+        print("Granting role", roleRequest.role_name, "for", user)
+        user.role = roleRequest.role_name
+        print("Removing role request #", roleRequest.id, sep="")
+        roleRequest.delete()
+
+    user.save()
+    return HttpResponse(status=200)
 
 
 def demo_login(request):

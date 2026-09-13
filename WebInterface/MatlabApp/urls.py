@@ -1,4 +1,5 @@
 from django.urls import path
+
 from accounts import views as accounts_views
 from . import views
 
@@ -11,29 +12,30 @@ urlpatterns = [
     path('login/', accounts_views.login_view, name='login'),
     path('register/', accounts_views.register, name='register'),
     path('logout/', accounts_views.logout_view, name='logout'),
-    
+    path('api/verify_email', accounts_views.verify_email_view, name='verify_email'),
+
     # Main App URLs
     path('dashboard/', views.dashboard, name='dashboard'),
     path('data_history/', views.data_history, name='data'),
 
-    #Camera Stream
+    # Camera Stream
     path('live/', views.pendulum_stream, name='pendulum_stream'),
 
-    #experimets
+    # experiments
     path('experiment/<str:experiment_name>/', views.experiment_run_dynamic, name='experiment_run_dynamic'),
     path('experiment/<str:experiment_name>/command/', views.send_experiment_command, name='send_experiment_command'),
     path('experiment/<str:experiment_name>/params/', views.update_experiment_params, name='update_experiment_params'),
     path('experiment/<str:experiment_name>/defaults/', views.get_experiment_defaults, name='get_experiment_defaults'),
 
-    #Emergency stop
+    # Emergency stop
     path('control/estop/', views.estop, name='estop'),
 
-    #Control Lock URLs
+    # Control Lock URLs
     path('control/acquire/', views.acquire_lock, name='acquire_lock'),
     path('control/release/', views.release_lock, name='release_lock'),
     path('control/heartbeat/', views.heartbeat, name='heartbeat'),
     path('control/status/', views.lock_status, name='lock_status'),
 
-    #demo login
+    # demo login
     path('demo/', accounts_views.demo_login, name='demo_login'),
 ]

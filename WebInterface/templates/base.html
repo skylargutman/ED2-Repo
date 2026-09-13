@@ -67,7 +67,7 @@
     <!-- Main Content -->
     <div class="container mt-4">
         <!-- Display Django Messages -->
-        {% if messages %}
+        {% if messages or request.user.is_viewer %}
         <div class="alert-container">
             {% for message in messages %}
             <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
@@ -75,6 +75,15 @@
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
             {% endfor %}
+            {% if SHOULD_SHOW_EMAIL_VERIFICATION %}
+                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <p>
+                        <b>Your email address has not been verified!</b><br>
+                        Verify it by submitting <a href="{{ EMAIL_VERIFICATION_LINK }}" target=\"_blank\">this form</a>.
+                    </p>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endif %}
         </div>
         {% endif %}
 
