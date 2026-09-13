@@ -46,8 +46,8 @@
                     <li class="nav-item">
                         <span class="navbar-text text-light me-3">
                              {{ user.username }} 
-                            <span class="badge bg-{% if user.role == 'instructor' %}warning{% else %}primary{% endif %}">
-                                {{ user.role|title }}
+                            <span class="badge bg-{{  user.role_color }}">
+                                {{ user.formatted_role|title }}
                             </span>
                         </span>
                     </li>

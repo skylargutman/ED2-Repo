@@ -23,7 +23,7 @@ def acquire_lock(request):
         request.session.save()
 
     # Viewer accounts can never acquire control
-    if request.user.is_viewer:
+    if request.user.is_viewer or request.user.role == "view_only":
         return JsonResponse({'status': 'viewer'})
 
     #ensure 2 users can't acquire at the same time
