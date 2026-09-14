@@ -241,9 +241,16 @@
                 </div>
                 <div class="card-body" style="max-height: 150px; overflow-y: auto;">
                     {% if recent_commands %}
-                        {% for cmd in recent_commands|slice:":5" %}
+                        {% for cmd in recent_commands %}
                         <div class="d-flex justify-content-between py-1 border-bottom">
+                            {% if user.role == "instructor" %}
+                                <span>
+                                <small class="text-muted badge bg-{{ cmd.user.role_color }}">{{ cmd.user.username }}</small>
+                            {% endif %}
                             <code>{{ cmd.command }}</code>
+                            {% if user.role == "instructor" %}
+                                </span>
+                            {% endif %}
                             <small class="text-muted">{{ cmd.timestamp|date:"H:i:s" }}</small>
                         </div>
                         {% endfor %}

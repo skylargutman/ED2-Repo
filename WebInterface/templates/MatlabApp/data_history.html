@@ -25,12 +25,13 @@
                         <table class="table table-striped table-hover mb-0">
                             <thead class="table-dark sticky-top">
                                 <tr>
-            			    <th style="width: 10%">#</th>
+            			    <th>#</th>
             			    {% if user.role == 'instructor' %}
-            			    <th style="width: 20%">User</th>
+            			    <th>User</th>
             			    {% endif %}
+                            <th>Experiment</th>
             			    <th style="width: 50%">Command</th>
-            			    <th style="width: 20%">Timestamp</th>
+            			    <th>Timestamp</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -39,11 +40,12 @@
                                     <td class="text-muted">{{ forloop.counter }}</td>
             			    {% if user.role == 'instructor' %}
             			    <td>
-                			    <span class="badge bg-{% if cmd.user.role == 'instructor' %}warning{% else %}primary{% endif %}">
+                			    <span class="badge bg-{{ cmd.user.role_color }}">
                     			    {{ cmd.user.username }}
                 			    </span>
             			    </td>
             			    {% endif %}
+                                    <td>{{ cmd.experiment }}</td>
                                     <td><code class="text-primary">{{ cmd.command }}</code></td>
                                     <td><small>{{ cmd.timestamp|date:"M d, Y H:i:s" }}</small></td>
                                 </tr>
@@ -105,7 +107,7 @@
         </div>
     </div>
 
-   
+
     <!-- Action Buttons -->
     <div class="row mt-4">
         <div class="col-12 text-center">
@@ -128,7 +130,7 @@
         top: 0;
         z-index: 10;
     }
-    
+
     /* Print styles */
     @media print {
         .btn, nav, footer {
