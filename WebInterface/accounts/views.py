@@ -12,8 +12,9 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .models import CustomUser, RoleRequest
 
-EMAIL_VERIFICATION_SECRET = os.environ["EMAIL_VERIFICATION_SECRET"]
-EMAIL_VERIFICATION_LINK = os.environ["EMAIL_VERIFICATION_LINK"]
+EMAIL_VERIFICATION_SECRET = os.environ.get("EMAIL_VERIFICATION_SECRET", None)
+EMAIL_VERIFICATION_LINK = os.environ.get("EMAIL_VERIFICATION_LINK", None)
+EMAIL_VERIFICATION_ENABLED = EMAIL_VERIFICATION_SECRET and EMAIL_VERIFICATION_LINK
 
 
 # Handles storing registration info and sending new user to dashboard page
@@ -29,9 +30,13 @@ def register(request):
             context = {"prefillUser": username, "prefillEmail": email, "prefillPassword": password}
             return render(request, 'register.html', context)
 
-        user = CustomUser.objects.create_user(username=username, password=password, email=email, role='view_only',
-                                              is_viewer=True)
-        RoleRequest.objects.create(user=user, role_name=requested_role)
+        if EMAIL_VERIFICATION_ENABLED:
+            user = CustomUser.objects.create_user(username=username, password=password, email=email, role='view_only',
+                                                  is_viewer=True)
+            RoleRequest.objects.create(user=user, role_name=requested_role)
+        else:
+            user = CustomUser.objects.create_user(username=username, password=password, email=email,
+                                                  role=requested_role)
 
         messages.success(request, "Account created successfully!")
         login(request, user)
@@ -71,6 +76,8 @@ def verify_email_view(request):
         return HttpResponse(status=400)
     if request.content_type != "application/json":
         return HttpResponse(status=415)
+    if not EMAIL_VERIFICATION_ENABLED:
+        return HttpResponse(status=400)
 
     from accounts.models import CustomUser
     data = json.loads(request.body)
