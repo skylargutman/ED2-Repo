@@ -17,6 +17,7 @@ from .mqtt_utils import send_command
 LOCK_TIMEOUT = 60  # seconds
 from django.db import transaction
 
+from MatlabApp.experiments import EXPERIMENTS
 
 @login_required
 def acquire_lock(request):
@@ -84,9 +85,9 @@ def requires_control_lock(view_func):
 
     return wrapper
 
-
 # Experiment configuration - default parameters for each experiment
 #@formatter:off
+"""
 EXPERIMENT_DEFAULTS = {
     'SwingHoldPendulum': {
             'parameters': {
@@ -244,6 +245,8 @@ EXPERIMENT_DEFAULTS = {
     },
 
 }
+"""
+
 # @formatter:on
 
 
@@ -262,20 +265,26 @@ def experiment_run_dynamic(request, experiment_name):
     Display the experiment run page with parameters and controls
     """
     # Check if experiment exists
-    if experiment_name not in EXPERIMENT_DEFAULTS:
+    no_experiment = False
+
+
+
+    if experiment_name not in EXPERIMENTS:
         django_messages.error(request, f'Experiment "{experiment_name}" not found')
         return redirect('dashboard')
 
     # Get parameters for this specific experiment
-    experiment_config = EXPERIMENT_DEFAULTS[experiment_name]
+    experiment_config = EXPERIMENTS[experiment_name]
 
     # Handle both old format (just values) and new format (with metadata)
+    """
     if 'parameters' in experiment_config:
         parameters = experiment_config['parameters']
     else:
         # Old format - treat all as editable for backwards compatibility
         parameters = {k: {'value': v, 'editable': True, 'unit': ''}
                       for k, v in experiment_config.items()}
+    """
 
     # Get recent activity
     recent_commands = Command.objects.filter(experiment=experiment_name).all()[:10]
@@ -283,7 +292,7 @@ def experiment_run_dynamic(request, experiment_name):
 
     context = {
         'experiment_name': experiment_name,
-        'parameters': parameters,  # PASS PARAMETERS TO TEMPLATE
+        'parameters': experiment_config.parameters,  # PASS PARAMETERS TO TEMPLATE
         'recent_commands': recent_commands,
         'raspi_messages': raspi_messages,
         'is_instructor': request.user.is_instructor,
@@ -361,7 +370,7 @@ def send_experiment_command(request, experiment_name):
                     payload["parameters"] = session.parameters
                 except ExperimentSession.DoesNotExist:
                     # Fall back to defaults
-                    exp_params = EXPERIMENT_DEFAULTS[experiment_name].get('parameters', {})
+                    exp_params = EXPERIMENTS[experiment_name].get('parameters', {})
                     if experiment_name in nested_experiments:
                         payload["parameters"] = {
                             group: {
@@ -406,7 +415,7 @@ def update_experiment_params(request, experiment_name):
         data = json.loads(request.body)
         parameters = data.get('parameters', {})
 
-        if experiment_name not in EXPERIMENT_DEFAULTS:
+        if experiment_name not in EXPERIMENTS:
             return JsonResponse({
                 'success': False,
                 'error': f'Experiment "{experiment_name}" not found'
@@ -442,7 +451,7 @@ def update_experiment_params(request, experiment_name):
 @login_required
 @requires_control_lock
 def get_experiment_defaults(request, experiment_name):
-    if experiment_name not in EXPERIMENT_DEFAULTS:
+    if experiment_name not in EXPERIMENTS:
         return JsonResponse({
             'success': False,
             'error': f'Experiment "{experiment_name}" not found'
@@ -451,7 +460,7 @@ def get_experiment_defaults(request, experiment_name):
     return JsonResponse({
         'success': True,
         'experiment': experiment_name,
-        'defaults': EXPERIMENT_DEFAULTS[experiment_name]
+        'defaults': EXPERIMENTS[experiment_name]
     })
 
 

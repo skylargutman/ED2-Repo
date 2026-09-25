@@ -1,0 +1,4 @@
+#!/bin/bash
+
+PYTH_PATH=/home/lab_instruments/web-venv/bin/python
+docker compose exec backend $PYTH_PATH manage.py migrate

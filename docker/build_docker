@@ -21,7 +21,6 @@ build_env_file () {
 	EOF
 }
 
-
 build_env_file
 
 echo "Running compose in the background ..."

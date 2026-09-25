@@ -12,12 +12,13 @@ USER lab_instruments
 WORKDIR ${IMG_HOME_DIR}
 
 RUN mkdir backend-app
+RUN mkdir deploy
 RUN python3 -m venv web-venv
 RUN cd backend-app
 WORKDIR backend-app
 COPY  --chown=lab_instruments:lab_instruments pyproject.toml uv.lock .
+COPY --chown=lab_instruments:lab_instruments .env ../deploy
 RUN ../web-venv/bin/pip install uv
 RUN ../web-venv/bin/uv sync --frozen
 
-
-CMD ["/home/lab_instruments/web-venv/bin/uv", "run", "python",  "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["/home/lab_instruments/web-venv/bin/uv", "run", "python", "manage.py", "runserver", "0.0.0.0:8000"]

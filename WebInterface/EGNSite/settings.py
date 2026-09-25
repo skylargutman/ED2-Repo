@@ -138,53 +138,56 @@ WSGI_APPLICATION = 'EGNSite.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 """
+TIME_ZONE = 'EST'
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'egnsitedb'),
-        'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
-    }
-}
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.environ.get('DB_NAME', 'egnsitedb'),
+            'USER': os.environ.get('DB_USER', 'root'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '3306'),
+            }
+        }
+
 """
 
+TIME_ZONE = "America/New_York"
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'mydb'),
-        'USER': os.environ.get('DB_USER', 'petera'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'thissucks'),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '8000'),
-    }
-}
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.environ.get('DB_NAME', 'mydb'),
+            'USER': os.environ.get('DB_USER', 'petera'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', 'thissucks'),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '8000'),
+            }
+        }
 
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
+        {
+            'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+            },
+        {
+            'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+            },
+        {
+            'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+            },
+        {
+            'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+            },
+        ]
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
-]
+        'django.contrib.auth.backends.ModelBackend',
+        ]
 
 
 # Internationalization
@@ -192,7 +195,6 @@ AUTHENTICATION_BACKENDS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'America/New_York'
 
 USE_I18N = True
 
@@ -205,8 +207,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 STATICFILES_DIRS = [
-    BASE_DIR / 'staticfiles',  
-]
+        BASE_DIR / 'staticfiles',  
+        ]
 
 STATIC_ROOT = BASE_DIR / 'collected_static'
 
@@ -229,8 +231,8 @@ SECURE_SSL_REDIRECT = False          # nginx already redirects :80 -> :443
 # then remove it once deploy/enable-tls.sh has run.
 _cookie_secure_default = 'False' if DEBUG else 'True'
 COOKIE_SECURE = os.environ.get(
-    'DJANGO_COOKIE_SECURE', _cookie_secure_default
-).lower() in ('1', 'true', 'yes')
+        'DJANGO_COOKIE_SECURE', _cookie_secure_default
+        ).lower() in ('1', 'true', 'yes')
 
 SESSION_COOKIE_SECURE = COOKIE_SECURE
 CSRF_COOKIE_SECURE = COOKIE_SECURE
@@ -239,13 +241,13 @@ CSRF_COOKIE_SECURE = COOKIE_SECURE
 # rejected. The previous config listed only ngrok domains and got away with it
 # because DEBUG was True.
 CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS') or [
-    'https://sciencelabtoyou.com',
-    'https://www.sciencelabtoyou.com',
-    #ALL NGROK DOMAINS
-    'https://*.ngrok.io',
-    'https://*.ngrok-free.app',
-    'https://*.ngrok-free.dev',
-]
+        'https://sciencelabtoyou.com',
+        'https://www.sciencelabtoyou.com',
+        #ALL NGROK DOMAINS
+        'https://*.ngrok.io',
+        'https://*.ngrok-free.app',
+        'https://*.ngrok-free.dev',
+        ]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
