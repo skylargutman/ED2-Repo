@@ -55,6 +55,11 @@
                 <span id="controlStatusText">View only — another user is in control</span>
             </div>
 
+            <!-- Rig status banner -->
+            <div id="rigStatusBanner" class="alert alert-danger mb-2" style="display:none;">
+                <span id="rigStatusText"></span>
+            </div>
+
             <!-- Inactivity banner -->
             <div id="inactivityBanner" class="alert alert-warning mb-2" style="display:none;">
                 <span>You have been kicked for inactivity.</span>
@@ -503,11 +508,12 @@ function setControlMode(inControl) {
     });
 
     const banner = document.getElementById('controlStatusBanner');
-    const text   = document.getElementById('controlStatusText');
+    const text = document.getElementById('controlStatusText');
+    const inactivityBanner = document.getElementById('inactivityBanner');
 
     if (inControl) {
         banner.style.display = 'none';
-        document.getElementById('inactivityBanner').style.display = 'none';
+        inactivityBanner.style.display = 'none';
         resetInactivityTimer(); //start countdown when control gained
     } else {
         //Clear inactivity timer when control is lost
@@ -517,7 +523,7 @@ function setControlMode(inControl) {
         }
         banner.style.display = 'flex';
         banner.className = 'alert alert-danger';
-        text.textContent = 'View only — another user is in control';
+        text.innerHTML = '<b>View only</b><br>Another user is in control';
     }
 
     updateUIState();
@@ -856,19 +862,30 @@ setInterval(() => {
 //  immediately rather than waiting for the next state change.
 // ─────────────────────────────────────────────
 const RIG_STATUS_STYLES = {
-    online:  { text: 'RIG: ONLINE',  cls: 'badge bg-success'   },
-    running: { text: 'RIG: RUNNING', cls: 'badge bg-primary'   },
-    homing:  { text: 'RIG: HOMING',  cls: 'badge bg-warning'   },
-    stopped: { text: 'RIG: STOPPED', cls: 'badge bg-secondary' },
-    offline: { text: 'RIG: OFFLINE', cls: 'badge bg-danger'    },
-    error:   { text: 'RIG: ERROR',   cls: 'badge bg-danger'    },
+    online:  { text: 'RIG: ONLINE',  cls: 'badge bg-success',    is_error: false   },
+    running: { text: 'RIG: RUNNING', cls: 'badge bg-primary',    is_error: false   },
+    homing:  { text: 'RIG: HOMING',  cls: 'badge bg-warning',    is_error: false   },
+    stopped: { text: 'RIG: STOPPED', cls: 'badge bg-secondary',  is_error: false   },
+    offline: { text: 'RIG: OFFLINE', cls: 'badge bg-danger',     is_error: true    },
+    error:   { text: 'RIG: ERROR',   cls: 'badge bg-danger',     is_error: true    },
+    unknown:  { text: 'RIG: UNKNOWN', cls: 'badge bg-secondary', is_error: true    },
 };
 
 function updateRigStatus(status, detail) {
     const el = document.getElementById('rigStatus');
     if (!el) return;
 
-    const style = RIG_STATUS_STYLES[status] || { text: 'RIG: UNKNOWN', cls: 'badge bg-secondary' };
+    const style = RIG_STATUS_STYLES[status] || RIG_STATUS_STYLES["unknown"];
+
+    const statusBanner = document.getElementById('rigStatusBanner');
+    const statusBannerText = document.getElementById('rigStatusText');
+    if (style.is_error && iAmInControl) {
+        statusBanner.style.display = 'flex';
+        statusBanner.className = 'alert alert-danger';
+        statusBannerText.innerHTML = "<b>Rig Error</b><br>Control functionality may be limited"
+    } else {
+        statusBanner.style.display = 'none';
+    }
 
     // For "running", the detail is the model name — worth showing, since it
     // tells you whether someone else's experiment is already on the hardware.
