@@ -216,7 +216,7 @@
                     <div class="d-flex align-items-center gap-2">
                         <!-- Rig state, driven by retained MQTT pendulum/status -->
                         <span id="rigStatus" class="badge bg-secondary" title="Pendulum rig state">RIG: UNKNOWN</span>
-                        <span id="wsStatus" class="badge bg-secondary">Connecting...</span>
+                        <span id="wsStatus" class="badge bg-secondary">WS: CONNECTING</span>
                         <button class="btn btn-sm btn-outline-light" onclick="clearCharts()">Clear</button>
                     </div>
                 </div>
@@ -891,12 +891,12 @@ function initWebSocket() {
     sensorSocket = new WebSocket(wsUrl);
 
     sensorSocket.onopen = function() {
-        document.getElementById('wsStatus').textContent = 'Connected';
+        document.getElementById('wsStatus').textContent = 'WS: CONNECTED';
         document.getElementById('wsStatus').className = 'badge bg-success';
     };
 
     sensorSocket.onclose = function() {
-        document.getElementById('wsStatus').textContent = 'Disconnected';
+        document.getElementById('wsStatus').textContent = 'WS: DISCONNECTED';
         document.getElementById('wsStatus').className = 'badge bg-danger';
         // With the socket down we no longer know the rig's state; showing the
         // last-seen value would be misleading.
@@ -906,7 +906,7 @@ function initWebSocket() {
     };
 
     sensorSocket.onerror = function() {
-        document.getElementById('wsStatus').textContent = 'Error';
+        document.getElementById('wsStatus').textContent = 'WS: ERROR';
         document.getElementById('wsStatus').className = 'badge bg-danger';
     };
 
