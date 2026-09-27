@@ -404,6 +404,7 @@ async function releaseLock() {
     try {
         await fetch('/control/release/', {
             method: 'POST',
+            keepalive: true,
             headers: { 'X-CSRFToken': getCsrfToken() }
         });
     } catch (err) {
@@ -942,7 +943,7 @@ function initWebSocket() {
 // ─────────────────────────────────────────────
 window.addEventListener('beforeunload', () => {
     if (iAmInControl) {
-        navigator.sendBeacon('/control/release/');
+        releaseLock();
     }
 });
 
