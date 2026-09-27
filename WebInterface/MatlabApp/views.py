@@ -40,7 +40,7 @@ def acquire_lock(request):
         ControlLock.objects.all().delete()
         ControlLock.objects.create(
             session_key=request.session.session_key,
-            user=str(request.user)
+            user=request.user
         )
     return JsonResponse({'status': 'acquired'})
 
@@ -312,7 +312,7 @@ def estop(request):
 
     ControlLock.objects.create(
         session_key=request.session.session_key,
-        user=str(request.user)
+        user=request.user
     )
 
     return JsonResponse({'status': 'estop_ok'})

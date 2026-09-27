@@ -6,7 +6,10 @@ from django.utils import timezone
 
 class ControlLock(models.Model):
     session_key = models.CharField(max_length=40, unique=True)
-    user = models.CharField(max_length=100, blank=True, default='')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+    )
     acquired_at = models.DateTimeField(auto_now_add=True)
     last_heartbeat = models.DateTimeField(auto_now_add=True)
 
