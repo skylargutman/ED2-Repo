@@ -68,4 +68,17 @@ class Message(models.Model):
     # user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='messages')
 
     def __str__(self):
-        return f"{self.message} @ {self.timestamp} (to {self.user.username})"
+        return f"{self.message} @ {self.timestamp}"  # (to {self.user.username})"
+
+
+# Stores the last known status for each piece of equipment
+class EquipmentStatus(models.Model):
+    name = models.CharField(max_length=50)
+    value = models.CharField(max_length=255)
+    extraValue = models.CharField(max_length=255)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get_latest(cls, equipment_name: str, timeout_seconds=300):
+        cutoff = timezone.now() - timezone.timedelta(seconds=timeout_seconds)
+        return cls.objects.filter(name=equipment_name, last_updated__gte=cutoff).first()

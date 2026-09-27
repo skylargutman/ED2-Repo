@@ -8,11 +8,14 @@
 
 {% block content %}
 <div class="container-fluid">
-    <!-- Page Header -->
+    <!-- Equipment Header with Consolidated Status -->
     <div class="row mb-4">
         <div class="col-12 text-center">
-            <h1 class="mb-2">Gantry Crane Pendulum Experiments</h1>
-            <p class="text-muted">Select an experiment to begin</p>
+            <h1 class="mb-2">Gantry Crane Pendulum</h1>
+            <!-- Status Indicator Badge -->
+            <div class="d-inline-flex align-items-center px-3 py-1 rounded-pill mb-2 border border-secondary bg-dark">
+                    <span class="{{ status.banner_style }} fw-bold small">{{ status.banner_text }}</span>
+            </div>
         </div>
     </div>
 
@@ -60,15 +63,21 @@
         <div class="col-12">
             <div class="card shadow">
                 <div class="card-body">
-                    <div class="row text-center">
-                        <div class="col-md-4">
-                            <h6 class="text-muted">Available Experiments</h6>
-                            <h5 class="text-primary">12 of 12</h5>
+                    <div class="row text-center align-items-center">
+                        <div class="col-md-4 mb-2 mb-md-0">
+                            <h6 class="text-muted mb-1">Rig Status</h6>
+                            <span class="badge {{ status.badge_style }}">
+                                {{ status.badge_text }}
+                            </span>
+                        </div>
+                        <div class="col-md-4 mb-2 mb-md-0">
+                            <h6 class="text-muted mb-1">Configured Experiments</h6>
+                            <h5 class="text-primary mb-0">12 Available</h5>
                         </div>
                         <div class="col-md-4">
-                            <h6 class="text-muted">Quick Access</h6>
-                            <a href="{% url 'data' %}" class="btn btn-outline-primary">
-                                 View Data History
+                            <h6 class="text-muted mb-1">Data & Analytics</h6>
+                            <a href="{% url 'data' %}" class="btn btn-sm btn-outline-primary">
+                                View Data History
                             </a>
                         </div>
                     </div>

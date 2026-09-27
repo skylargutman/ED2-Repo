@@ -3,7 +3,9 @@
         <div class="experiment-card card shadow-sm">
             <div class="card-body">
                 <h5 class="experiment-title">{{ name }}</h5>
-                <span class="badge bg-success">Available</span>
+                {% for badge in badges %}
+                <span class="badge {{ badge.classes }}">{{ badge.text }}</span>
+                {% endfor %}
             </div>
         </div>
     </a>

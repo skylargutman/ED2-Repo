@@ -25,7 +25,7 @@ django.setup()
 
 # MQTT and Message import
 import paho.mqtt.client as mqtt
-from MatlabApp.models import Message
+from MatlabApp.models import Message, EquipmentStatus
 
 # Channel layer for WebSocket push
 import json
@@ -157,6 +157,13 @@ def handle_status(message_text):
     both. Status is transient and already retained by the broker.
     """
     parsed = parse_status(message_text)
+
+    # Update Equipment Status
+    EquipmentStatus.objects.update_or_create(
+        name="pendulum",
+        value=parsed.get('status', ""),
+        extraValue=parsed.get('detail', "")
+    )
 
     try:
         async_to_sync(channel_layer.group_send)(

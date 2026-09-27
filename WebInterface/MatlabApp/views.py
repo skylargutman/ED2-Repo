@@ -8,7 +8,7 @@ from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from .models import Command, Message
+from .models import Command, Message, EquipmentStatus
 # View for managing control lock for the experiment, ensuring only one user can control at a time, with a timeout mechanism
 from .models import ControlLock
 from .models import ExperimentSession
@@ -18,6 +18,7 @@ LOCK_TIMEOUT = 60  # seconds
 from django.db import transaction
 
 from MatlabApp.experiments import EXPERIMENTS
+
 
 @login_required
 def acquire_lock(request):
@@ -85,8 +86,8 @@ def requires_control_lock(view_func):
 
     return wrapper
 
+
 # Experiment configuration - default parameters for each experiment
-#@formatter:off
 """
 EXPERIMENT_DEFAULTS = {
     'SwingHoldPendulum': {
@@ -247,7 +248,43 @@ EXPERIMENT_DEFAULTS = {
 }
 """
 
-# @formatter:on
+
+def get_status(equipment_name: str, in_use: bool):
+    status = EquipmentStatus.get_latest(equipment_name)
+    if in_use:
+        return {
+            "banner_text": "Busy • In Use",
+            "banner_style": "text-warning",
+            "badge_text": "In Use",
+            "badge_style": "bg-warning"
+        }
+    if status is None or status.value in ["offline"]:
+        return {
+            "banner_text": "Offline • Unavailable",
+            "banner_style": "text-warning",
+            "badge_text": "Offline",
+            "badge_style": "bg-warning"
+        }
+    if status.value in ["online", "homing"]:
+        return {
+            "banner_text": "Available",
+            "banner_style": "text-white",
+            "badge_text": "Available",
+            "badge_style": "bg-success"
+        }
+    if status.value in ["error"]:
+        return {
+            "banner_text": "Error • Unavailable",
+            "banner_style": "text-danger",
+            "badge_text": "Unavailable",
+            "badge_style": "bg-danger"
+        }
+    return {
+        "banner_text": "Unknown Status",
+        "banner_style": "text-danger",
+        "badge_text": "Unknown",
+        "badge_style": "bg-danger"
+    }
 
 
 @login_required
@@ -256,7 +293,19 @@ def dashboard(request):
     Main dashboard - shows experiment selection grid
     """
 
-    return render(request, 'MatlabApp/dashboard.html')
+    # If there is an active lock, show "Busy" status
+    activeLock = ControlLock.get_active(LOCK_TIMEOUT)
+    # activeLockExperiment = None
+    # if activeLock is not None:
+    #     activeLockExperiment = ExperimentSession.objects.filter(user=activeLock.user.id).order_by("updated_at").first()
+    # TODO: Add "Running" badge to the experiment in use
+
+    status_dict = get_status("pendulum", activeLock is not None)
+
+    context = {
+        "status": status_dict,
+    }
+    return render(request, 'MatlabApp/dashboard.html', context)
 
 
 @login_required
