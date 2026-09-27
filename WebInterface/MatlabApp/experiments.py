@@ -3,29 +3,29 @@ import os
 
 from dataclasses import dataclass, field
 
-@dataclass(slots=True)
 
+@dataclass(slots=True)
 class Experiment:
     name: str = ""
     parameters: dict = field(default_factory=dict)
 
-def load_experiment_from_file(experiment ,exp_name):
+
+def load_experiment_from_file(experiment, exp_name):
     exp_file = f"experiments/{exp_name}"
 
-    with open(exp_file) as experiment_json_file:
+    with open(exp_file, "r", encoding="utf-8") as experiment_json_file:
         exp_dict = json.load(experiment_json_file)
-        if exp_dict.get("name") == None: 
-            raise ValueError("Getting name from dict is returning None.") 
+        if exp_dict.get("name") is None:
+            raise ValueError("Getting name from dict is returning None.")
         experiment.name = exp_dict["name"]
 
-        for param in exp_dict["parameters"]: 
-               experiment.parameters[param] = exp_dict["parameters"][param]
+        for param in exp_dict["parameters"]:
+            experiment.parameters[param] = exp_dict["parameters"][param]
 
-def load_experiment_files(): 
+
+def load_experiment_files():
     experiment_files = os.listdir("experiments")
     experiments_dict = {}
-    experiment = None
-    index = 0
 
     for experiment_file_name in experiment_files:
         experiment = Experiment()
@@ -34,6 +34,5 @@ def load_experiment_files():
 
     return experiments_dict
 
+
 EXPERIMENTS = load_experiment_files()
-
-
