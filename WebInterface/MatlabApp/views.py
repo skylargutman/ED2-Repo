@@ -265,12 +265,8 @@ def experiment_run_dynamic(request, experiment_name):
     Display the experiment run page with parameters and controls
     """
     # Check if experiment exists
-    no_experiment = False
-
-
-
     if experiment_name not in EXPERIMENTS:
-        django_messages.error(request, f'Experiment "{experiment_name}" not found')
+        django_messages.error(request, f'Experiment "{experiment_name}" not found', extra_tags="danger")
         return redirect('dashboard')
 
     # Get parameters for this specific experiment
