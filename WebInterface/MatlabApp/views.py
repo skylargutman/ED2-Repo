@@ -291,7 +291,7 @@ def experiment_run_dynamic(request, experiment_name):
         'parameters': experiment_config.parameters,  # PASS PARAMETERS TO TEMPLATE
         'recent_commands': recent_commands,
         'raspi_messages': raspi_messages,
-        'is_instructor': request.user.is_instructor,
+        'is_instructor': request.user.is_instructor(),
     }
 
     return render(request, 'MatlabApp/experiment_run_dynamic.html', context)
@@ -300,7 +300,7 @@ def experiment_run_dynamic(request, experiment_name):
 @login_required
 def estop(request):
     # Only instructors can use estop
-    if not request.user.is_instructor:
+    if not request.user.is_instructor():
         return JsonResponse({'error': 'Not authorized'}, status=403)
 
     # Clear whoever currently holds the lock

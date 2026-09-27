@@ -16,7 +16,6 @@ ROLE_COLORS = {
 
 class CustomUser(AbstractUser):
     is_viewer = models.BooleanField(default=False)
-    is_instructor = models.BooleanField(default=False)
     role = models.CharField(max_length=20, choices=ROLES, default='student')
 
     def formatted_role(self) -> str:
@@ -24,6 +23,9 @@ class CustomUser(AbstractUser):
 
     def role_color(self) -> str:
         return ROLE_COLORS.get(self.role, "danger")
+
+    def is_instructor(self) -> bool:
+        return self.role in ["instructor"]
 
 
 class RoleRequest(models.Model):
