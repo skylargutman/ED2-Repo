@@ -3,6 +3,7 @@ FROM ubuntu
 ENV IMG_HOME_DIR=/home/lab_instruments
 ENV IMAG_APP_DIR=${IMG_HOME_DIR}/ED2-Repo
 ENV UV_PROJECT_ENVIRONMENT=/home/lab_instruments/web-venv
+ENV PATH="/home/lab_instruments/web-venv/bin:$PATH"
 
 RUN apt-get update && apt-get install -y git vim python3 python3-venv sudo 
 RUN useradd -m -s /bin/bash lab_instruments

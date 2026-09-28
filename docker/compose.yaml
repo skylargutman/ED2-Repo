@@ -26,10 +26,14 @@ services:
       MYSQL_PASSWORD: thissucks
       MYSQL_USER: petera
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    volumes:
+      - mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 30s
+volumes:
+  mysql_data:
 
