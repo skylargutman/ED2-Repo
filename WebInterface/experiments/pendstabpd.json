@@ -1,14 +1,14 @@
 {
-	"name": "SwingHoldPendulum",
+	"name": "PendStabPD",
 	"parameters": {
-		"PID_D": {
+		"PID_1": {
 			"proportional": {
-				"value": 70,
+				"value": 8.0,
 				"editable": true,
 				"unit": "kg"
 			},
 			"integral": {
-				"value": 0.5,
+				"value": 0.3,
 				"editable": true,
 				"unit": "kg/s"
 			},
@@ -25,12 +25,12 @@
 				"unit": "kg"
 			},
 			"integral": {
-				"value": 0.2,
+				"value": 0.1,
 				"editable": true,
 				"unit": "kg/s"
 			},
 			"derivative": {
-				"value": 1.5,
+				"value": 1.8,
 				"editable": true,
 				"unit": "kg\u22c5s"
 			}

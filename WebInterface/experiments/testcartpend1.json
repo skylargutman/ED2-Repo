@@ -1,0 +1,20 @@
+{
+	"name": "TestCartPend1",
+	"parameters": {
+		"kp": {
+			"value": 27.8,
+			"editable": true,
+			"unit": "unit"
+		},
+		"ki": {
+			"value": 50.0,
+			"editable": true,
+			"unit": "unit"
+		},
+		"kd": {
+			"value": 3.9,
+			"editable": true,
+			"unit": "unit"
+		}
+	}
+}

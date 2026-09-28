@@ -1,9 +1,9 @@
 {
-	"name": "SwingHoldPendulum",
+	"name": "SwingHoldPendulumExtra",
 	"parameters": {
 		"PID_D": {
 			"proportional": {
-				"value": 70,
+				"value": 7.0,
 				"editable": true,
 				"unit": "kg"
 			},

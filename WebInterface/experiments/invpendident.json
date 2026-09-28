@@ -1,0 +1,73 @@
+{
+	"name": "InvPendIdent",
+	"parameters": {
+		"PID": {
+			"proportional": {
+				"value": 20.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.1,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 2.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		},
+		"PID_D": {
+			"proportional": {
+				"value": 7.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.1,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 2.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		},
+		"PID_1": {
+			"proportional": {
+				"value": 7.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.1,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 2.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		},
+		"PID_D1": {
+			"proportional": {
+				"value": 20.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.1,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 2.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		}
+	}
+}

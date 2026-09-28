@@ -1,0 +1,15 @@
+{
+	"name": "PendSwingUp",
+	"parameters": {
+		"voltage amplitude": {
+			"value": 0.2,
+			"editable": true,
+			"unit": "V"
+		},
+		"angle comparison value": {
+			"value": 1.0,
+			"editable": true,
+			"unit": "rad"
+		}
+	}
+}

@@ -1,36 +1,36 @@
 {
-	"name": "SwingHoldPendulum",
+	"name": "CartControl",
 	"parameters": {
 		"PID_D": {
 			"proportional": {
-				"value": 70,
+				"value": 27.8,
 				"editable": true,
 				"unit": "kg"
 			},
 			"integral": {
-				"value": 0.5,
+				"value": 50.0,
 				"editable": true,
 				"unit": "kg/s"
 			},
 			"derivative": {
-				"value": 4.0,
+				"value": 3.9,
 				"editable": true,
 				"unit": "kg\u22c5s"
 			}
 		},
 		"PID_D1": {
 			"proportional": {
-				"value": 25.0,
+				"value": 27.8,
 				"editable": true,
 				"unit": "kg"
 			},
 			"integral": {
-				"value": 0.2,
+				"value": 50.0,
 				"editable": true,
 				"unit": "kg/s"
 			},
 			"derivative": {
-				"value": 1.5,
+				"value": 3.9,
 				"editable": true,
 				"unit": "kg\u22c5s"
 			}

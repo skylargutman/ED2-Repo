@@ -1,0 +1,73 @@
+{
+	"name": "UpDownPendulum",
+	"parameters": {
+		"PID_DIPS": {
+			"proportional": {
+				"value": 7.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.5,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 3.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		},
+		"PID_D1IPS": {
+			"proportional": {
+				"value": 25.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.2,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 2.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		},
+		"PID_DCC": {
+			"proportional": {
+				"value": 7.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 2.0,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 1.0,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		},
+		"PID_D1CC": {
+			"proportional": {
+				"value": 4.0,
+				"editable": true,
+				"unit": "kg"
+			},
+			"integral": {
+				"value": 0.0,
+				"editable": true,
+				"unit": "kg/s"
+			},
+			"derivative": {
+				"value": 0.1,
+				"editable": true,
+				"unit": "kg\u22c5s"
+			}
+		}
+	}
+}
