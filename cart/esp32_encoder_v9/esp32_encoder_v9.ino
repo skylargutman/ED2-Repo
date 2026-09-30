@@ -1,10 +1,30 @@
 // =============================================================================
 // ESP32 #1 — Encoder Firmware
-// Version: 9.0
+// Version: 9.2
 // Description: Reads motor and pendulum quadrature encoders via PCNT hardware.
 //              Serves encoder counts to Raspberry Pi over SPI slave interface.
-//              Sends motor position to ESP32 #2 over UART2 for homing routine.
+//              Sends motor and pendulum position to ESP32 #2 over UART2 for
+//              homing and standalone swing-up/balance.
 //              Replaces MCP23017/PCI-1711 data path entirely.
+//
+// Changes in 9.2 (requires ESP32 #2 (cart_control) v10.0 — flash both boards):
+//   - UART packet also carries the pendulum count (7 bytes, every 2ms).
+//   - PCNT counts accumulate past the 16-bit hardware limit instead of
+//     resetting to 0, so the pendulum angle stays correct after many turns.
+//   - ENC_DIAG channel diagnostic (per-channel edge counts). Found a dead
+//     level-shifter channel on pendulum B: the count only moved 0 <-> 1.
+//
+// Changes in 9.1:
+//   - UART packet data bytes are 7-bit (4-byte packet). In 9.0 any position
+//     from -256 to -1 put 0xFF in a data byte, which ESP32 #2 took as a packet
+//     header — its position froze in that range and centering hunted.
+//     Requires ESP32 #2 (cart_control) v9.8 or later.
+//   - Fixed compile error in check_uart_rx (pcnt_unit_clear_count{...}).
+//
+// UART Packet to ESP32 #2 (7 bytes, every 2ms):
+//   0xFF | m[6:0] | m[13:7] | m[15:14] | p[6:0] | p[13:7] | p[15:14]
+//   m = int16 motor count, p = low 16 bits of the pendulum count (ESP32 #2
+//   unwraps it). Data bytes are 7-bit so they never equal the 0xFF header.
 //
 // SPI Packet (10 bytes, CS-framed):
 //   Byte 0-3 : motor count     (int32, little-endian)
@@ -45,11 +65,18 @@
 #define UART_TX         17
 #define UART_RX         16
 
-// --- UART timing ---
-#define UART_INTERVAL_MS  4
+// --- UART timing --- (7 bytes per 2ms uses ~30% of 115200 baud)
+#define UART_INTERVAL_MS  2
 
 // --- SPI packet size ---
 #define SPI_PACKET_BYTES  10
+
+// --- Encoder channel diagnostic ---
+// 1 = poll every encoder pin in loop() and print per-channel edge counts and
+// levels once a second. Turn a shaft slowly by hand: a healthy encoder shows
+// edges on BOTH A and B. A count that only moves between 0 and 1 means one
+// channel is not toggling (or A and B carry the same signal).
+#define ENC_DIAG          0
 
 // --- Status flag bits ---
 #define FLAG_SYSTEM_READY    0x01
@@ -154,11 +181,17 @@ bool setup_spi_slave() {
 // Setup PCNT quadrature decoder
 // =============================================================================
 bool setup_pcnt(pcnt_unit_handle_t* unit, int pin_a, int pin_b) {
+  // accum_count + watch points on both limits: the driver adds the limit to a
+  // software total each time the hardware counter overflows and resets, so
+  // pcnt_unit_get_count() keeps counting past +/-32767.
   pcnt_unit_config_t unit_config = {
     .low_limit  = -32768,
     .high_limit =  32767,
   };
+  unit_config.flags.accum_count = 1;
   if (pcnt_new_unit(&unit_config, unit) != ESP_OK) return false;
+  if (pcnt_unit_add_watch_point(*unit, unit_config.low_limit)  != ESP_OK) return false;
+  if (pcnt_unit_add_watch_point(*unit, unit_config.high_limit) != ESP_OK) return false;
 
   pcnt_glitch_filter_config_t filter_config = { .max_glitch_ns = 5000 };
   if (pcnt_unit_set_glitch_filter(*unit, &filter_config) != ESP_OK) return false;
@@ -201,8 +234,8 @@ void check_uart_rx() {
     if (byte == 0xAA) {
       homing_complete = true;
       Serial.println("Homing complete confirmed from ESP32 #2");
-      pcnt_unit_clear_count{motor_pcnt};
-      pcnt_unit_clear_count{pend_pcnt};
+      pcnt_unit_clear_count(motor_pcnt);
+      pcnt_unit_clear_count(pend_pcnt);
     }
   }
 }
@@ -213,7 +246,7 @@ void check_uart_rx() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("=== ESP32 #1 Encoder Firmware v9.0 ===");
+  Serial.println("=== ESP32 #1 Encoder Firmware v9.2 ===");
 
   WiFi.mode(WIFI_OFF);
 
@@ -250,17 +283,40 @@ void loop() {
   // Check for homing complete signal from ESP32 #2
   check_uart_rx();
 
-  // Send motor position to ESP32 #2 every 4ms for homing
+  // Send motor and pendulum position to ESP32 #2 every 2ms.
+  // Data bytes are 7-bit so they can never equal the 0xFF header byte.
   static unsigned long last_uart = 0;
   if (millis() - last_uart >= UART_INTERVAL_MS) {
     int motor_current = 0;
+    int pend_current  = 0;
     pcnt_unit_get_count(motor_pcnt, &motor_current);
-    int16_t pos = (int16_t)motor_current;
-    Serial2.write(0xFF);
-    Serial2.write((uint8_t)(pos & 0xFF));
-    Serial2.write((uint8_t)((pos >> 8) & 0xFF));
+    pcnt_unit_get_count(pend_pcnt,  &pend_current);
+    uint16_t pos  = (uint16_t)(int16_t)motor_current;
+    uint16_t pend = (uint16_t)pend_current;   // low 16 bits; ESP32 #2 unwraps
+    uint8_t pkt[7] = {
+      0xFF,
+      (uint8_t)( pos         & 0x7F),
+      (uint8_t)((pos  >> 7)  & 0x7F),
+      (uint8_t)((pos  >> 14) & 0x03),
+      (uint8_t)( pend        & 0x7F),
+      (uint8_t)((pend >> 7)  & 0x7F),
+      (uint8_t)((pend >> 14) & 0x03),
+    };
+    Serial2.write(pkt, sizeof(pkt));
     last_uart = millis();
   }
+
+#if ENC_DIAG
+  // Count level changes on each raw encoder pin (independent of PCNT)
+  static const int diag_pins[4] = { MOTOR_ENC_A, MOTOR_ENC_B, PEND_ENC_A, PEND_ENC_B };
+  static int  diag_level[4] = { -1, -1, -1, -1 };
+  static long diag_edges[4] = { 0, 0, 0, 0 };
+  for (int i = 0; i < 4; i++) {
+    int lvl = digitalRead(diag_pins[i]);
+    if (diag_level[i] >= 0 && lvl != diag_level[i]) diag_edges[i]++;
+    diag_level[i] = lvl;
+  }
+#endif
 
   // Debug print every second
   static unsigned long last_print = 0;
@@ -273,6 +329,14 @@ void loop() {
     Serial.print("  P: ");  Serial.print(pend_current);
     Serial.print("  Flags: 0x"); Serial.print(spi_tx_buf[8], HEX);
     Serial.print("  Checksum: 0x"); Serial.println(spi_tx_buf[9], HEX);
+#if ENC_DIAG
+    // Edges seen in the last second, and the current level, per channel
+    Serial.printf("  edges/s  M_A:%ld M_B:%ld  P_A:%ld P_B:%ld   "
+                  "levels  M_A:%d M_B:%d  P_A:%d P_B:%d\n",
+                  diag_edges[0], diag_edges[1], diag_edges[2], diag_edges[3],
+                  diag_level[0], diag_level[1], diag_level[2], diag_level[3]);
+    for (int i = 0; i < 4; i++) diag_edges[i] = 0;
+#endif
     last_print = millis();
   }
 }
