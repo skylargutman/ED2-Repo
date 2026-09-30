@@ -13,6 +13,9 @@
 //     resetting to 0, so the pendulum angle stays correct after many turns.
 //   - ENC_DIAG channel diagnostic (per-channel edge counts). Found a dead
 //     level-shifter channel on pendulum B: the count only moved 0 <-> 1.
+//   - Homing complete is now the 4-byte sequence AA 55 A5 5A (a single 0xAA
+//     was produced by noise and zeroed the counts mid-run). Prints a count of
+//     UART noise bytes.
 //
 // Changes in 9.1:
 //   - UART packet data bytes are 7-bit (4-byte packet). In 9.0 any position
@@ -76,7 +79,7 @@
 // levels once a second. Turn a shaft slowly by hand: a healthy encoder shows
 // edges on BOTH A and B. A count that only moves between 0 and 1 means one
 // channel is not toggling (or A and B carry the same signal).
-#define ENC_DIAG          0
+#define ENC_DIAG          1
 
 // --- Status flag bits ---
 #define FLAG_SYSTEM_READY    0x01
@@ -226,16 +229,30 @@ bool setup_pcnt(pcnt_unit_handle_t* unit, int pin_a, int pin_b) {
 
 // =============================================================================
 // Check UART2 for homing_complete message from ESP32 #2
-// Protocol: single byte 0xAA = homing complete
+// Protocol: the 4-byte sequence HOMING_MAGIC = homing complete.
+// A single 0xAA byte used to mean this, but motor noise on the line produces
+// garbage bytes, and 1 in 256 is 0xAA: counts were being zeroed mid-run
+// ("Homing complete" three times in 3 s).
 // =============================================================================
+const uint8_t HOMING_MAGIC[4] = { 0xAA, 0x55, 0xA5, 0x5A };
+volatile uint32_t uart_noise_bytes = 0;   // bytes that were not part of a message
+
 void check_uart_rx() {
+  static int matched = 0;
   while (Serial2.available()) {
     uint8_t byte = Serial2.read();
-    if (byte == 0xAA) {
-      homing_complete = true;
-      Serial.println("Homing complete confirmed from ESP32 #2");
-      pcnt_unit_clear_count(motor_pcnt);
-      pcnt_unit_clear_count(pend_pcnt);
+    if (byte == HOMING_MAGIC[matched]) {
+      if (++matched == 4) {
+        matched = 0;
+        homing_complete = true;
+        Serial.println("Homing complete confirmed from ESP32 #2");
+        pcnt_unit_clear_count(motor_pcnt);
+        pcnt_unit_clear_count(pend_pcnt);
+      }
+    } else {
+      uart_noise_bytes += matched + 1;
+      matched = (byte == HOMING_MAGIC[0]) ? 1 : 0;
+      if (matched) uart_noise_bytes--;   // this byte may start a real message
     }
   }
 }
@@ -328,7 +345,8 @@ void loop() {
     Serial.print("M: ");    Serial.print(motor_current);
     Serial.print("  P: ");  Serial.print(pend_current);
     Serial.print("  Flags: 0x"); Serial.print(spi_tx_buf[8], HEX);
-    Serial.print("  Checksum: 0x"); Serial.println(spi_tx_buf[9], HEX);
+    Serial.print("  Checksum: 0x"); Serial.print(spi_tx_buf[9], HEX);
+    Serial.print("  UART noise: "); Serial.println(uart_noise_bytes);
 #if ENC_DIAG
     // Edges seen in the last second, and the current level, per channel
     Serial.printf("  edges/s  M_A:%ld M_B:%ld  P_A:%ld P_B:%ld   "

@@ -80,15 +80,30 @@ that only moves between 0 and 1 means one channel is not toggling (found on the
 pendulum B channel: a dead level-shifter channel, replaced by a
 4.7k-to-5V pull-up + 10k/22k divider into GPIO 34).
 
+A partial version of the same fault shows up only in part of the rotation: the
+pendulum angle freezes at one angle (flickering by one count) mid-swing, then
+resumes — behind by the counts it missed if the pendulum went through the zone.
+Seen at ~56° from hanging, bob toward +x, in a STEP log (`th` stuck at 124.02 /
+124.20 while `w` was −6.7 rad/s). Symptoms downstream: the upright reference
+drifts, and a caught pendulum is balanced about the wrong angle.
+
 Data bytes are 7-bit so they can never equal the `0xFF` header. The old 3-byte
 format (`0xFF | pos_low | pos_high`) put `0xFF` in the high byte for every
 position from −256 to −1; the motor board read that as a new header, its
 position froze in that range, and centering hunted back and forth whenever the
 centre landed near 0.
 
-Receives a single byte `0xAA` back, meaning homing complete, which sets
-`FLAG_HOMING_COMPLETE` in the SPI status byte and **zeroes both encoder
-counts** — so after homing, count 0 is the centre.
+Receives the 4-byte sequence `AA 55 A5 5A` back, meaning homing complete,
+which sets `FLAG_HOMING_COMPLETE` in the SPI status byte and **zeroes both
+encoder counts** — so after homing, count 0 is the centre.
+
+This used to be a single `0xAA` byte. Motor noise on the line produces garbage
+bytes, 1 in 256 of them is `0xAA`, and the counts were being zeroed mid-run
+("Homing complete confirmed" three times in 3 s): the cart position and
+pendulum angle jumped under the controller. The debug line now prints
+`UART noise:` — the number of bytes received that were not part of a message.
+It should stay at 0; if it climbs while the motor runs, that wire needs
+shielding, a twisted pair with ground, or a series resistor.
 
 ---
 
@@ -150,7 +165,7 @@ encoder reference.
 4. Drive to centre with proportional speed,
    stopping within CENTER_TOLERANCE (20 counts ≈ 1.5 mm)
 5. Wait for the cart to stop coasting (settle)
-6. Serial2.write(0xAA)  → tell ESP32 #1 (it zeroes its counts here)
+6. Serial2.write(AA 55 A5 5A)  → tell ESP32 #1 (it zeroes its counts here)
 7. GPIO 18 HIGH         → tell the Pi
 ```
 
@@ -211,25 +226,67 @@ STEP     (STEP_TEST 1 only) speed loop test: ±0.3 m/s for 0.6 s each,
          3 cycles, printing every 20 ms, then DONE (motor off)
 SWING    energy pumping on the speed loop: cart speed command SWING_V
          (0.4 m/s) opposite to the bob's side, reversing as the bob passes
-         the bottom (SWING_PHASE_DEG 0), shrinking as energy nears upright,
+         the bottom (SWING_PHASE_DEG), scaled by (E_target − E)/0.6 clamped
+         to ±1 — proportional, and negative (removing energy) above the
+         target of +0.02. E is the height of the last swing end (`Eend` =
+         cos θ_end − 1, exact), or the running E within 30° of upright (also
+         covers full rotations, which have no swing end); the running E reads
+         ~0.25 high at the bottom where the reversal happens. A 50 % minimum
+         push arrived too fast to catch, then pumped a spinning pendulum up
+         to 16 rad/s. Only catches arrivals slower
+         than 2 rad/s (faster ones need > 0.8 m/s of cart speed change),
          minus a pull back to centre (K_X_SWING m/s per m). No outward speed
          beyond 60 % of the half-track (until back inside 70 % of that).
          Reversals are triggered by the bob CROSSING sides; with no crossing
-         for 0.6 s (pendulum at rest) the cart reverses on a timer, rocking at
-         about the pendulum's own frequency to start a swing. Crossing-based,
-         so a steady angle offset can't cancel the timer's reversal.
-BALANCE  entered inside ±0.25 rad (and < 4 rad/s):
-         u = 2.8·θ + 1.6·θ' + 10·x + 0.6·x'   (u in −1..1)
+         for 0.8 s while nearly at rest (E < −1.9) the cart reverses on a
+         timer to start a swing. Crossing-based, so a steady angle offset
+         can't cancel the timer's reversal. The E gate matters: big swings
+         slow down near the top, crossings get > 0.8 s apart, and an ungated
+         timer reversed early every swing (stalled ~50° from upright).
+BALANCE  entered inside ±0.25 rad (and < 4 rad/s). Commands a cart
+         acceleration, integrated into the speed-loop command:
+         a = 62.8·θ + 11.2·θ' + 19.9·x + 15.9·v   (m/s², BAL_POLE 5)
          back to SWING if |θ| > 0.6 rad
 ```
 
+The balance gains are computed at startup (`balanceGains()`, printed after
+homing) to put all four closed-loop poles at `−BAL_POLE`, from the pendulum
+model `θ'' = ω0²·θ − (ω0²/g)·a`, which holds for any mass distribution. A
+simulation from a logged catch (θ 10°, θ' −0.86 rad/s, cart −50 mm at
+−0.46 m/s) settles in ~1 s with ≤ 225 mm cart travel for speed-loop lags of
+30–100 ms at pole 5; pole 7 falls at 100 ms lag.
+
+The Feedback SwingHoldPendulum PID gains were tried first and do **not**
+transfer: its cart signal is scaled by a negative factor (`Counts->Meters =
+−0.156/2048`) and it drove a force-like amplifier. On this rig they caught the
+pendulum and then drove the cart away from it into the limit.
+
+**The pendulum encoder gives 1968 counts per revolution**, not the 2000 a
+500-line ×4 encoder suggests (measured to a mark: 1967/turn backward,
+1969/turn forward). With 2000, upright was 2.9° off, and each full rotation
+during swing-up added another 5.9°. To re-measure: run `cart/serial_log.py`,
+hold the pendulum at a mark for 3 s, turn N turns to the mark, hold 3 s, and
+divide the change in `P:` by N.
+
+**First successful balance** (after the CPR fix): 18 s, angle within ±0.5°,
+cart within ±5 mm — but parked at −302 mm with the angle reading +5.5°,
+i.e. a 5.5° upright offset of unknown origin (no full rotations that run). The
+simulation reproduces it exactly (parks at −303 mm). Balance therefore
+**self-trims**: 2 s after a catch, the upright trim drifts at
+`−0.04 · x` rad/s until the cart parks at centre (~30 s for 5.5°; faster
+rates fight the balance and went unstable in simulation). The trim is printed
+on `BAL` lines — a consistent value across runs is a constant bias worth
+putting in `PEND_TRIM_DEG`.
+
+An upright offset δ (wrong `PEND_COUNTS_PER_REV` or hanging reference) makes
+the cart settle off-centre by about `62.8·δ / 19.9` — ~160 mm per 3° — so a
+balanced cart that parks well off-centre means trim `PEND_TRIM_DEG`.
+
 Conventions: `θ > 0` = top leans toward the right limit, `x > 0` = cart right
 of centre, `u > 0` = drive right. `cartDir` is learned during homing;
-`PEND_SIGN` must be set by hand (below). The balance gains are the Feedback
-SwingHoldPendulum PIDs (pendulum P 7 / D 4, cart P 25 / D 1.5, in volts over
-±2.5 V) divided by 2.5. `u` maps to PWM `RUN_MIN_PWM`…`RUN_MAX_PWM` (30…120,
-+10 when driving right), starting just under the stall PWM so small corrections
-still move the cart.
+`PEND_SIGN` must be set by hand (below). The motor command `u` maps to PWM
+`RUN_MIN_PWM`…`SPEED_MAX_PWM` (30…180, +10 when driving right), starting just
+under the stall PWM so small corrections still move the cart.
 
 ### Cart speed loop
 
@@ -245,9 +302,15 @@ cart mid-swing and took the energy back out (best reached ~75° off the bottom).
 With the loop the cart reverses quickly, the reversal can land when the bob is
 fastest, and travel is fixed by the commanded speed.
 
-Safety: limit switches and STOP behave as before; leaving 85 % of the
-half-track or exceeding 1.8 m/s is a software fault stop. All need START to
-re-home.
+Safety: limit switches and STOP behave as before (immediate motor stop).
+Software faults — the cart would pass 85 % of the half-track, predicted from
+`|x| + v²/(2·3 m/s²)` while moving outward, or exceeds 1.8 m/s — **brake**
+through the speed loop (`BRAKE` state, ≤ 0.6 s) and then disable. The first
+version only cut the motor once the cart was already at 85 %; coasting slows
+only ~1.3 m/s², so at 0.8 m/s it slammed into the end rail. All need START to
+re-home. In run mode a limit switch must read pressed for 5 ms
+(`LIMIT_CONFIRM_MS`): full-power reversals put noise spikes on the limit
+inputs and caused false hits near the centre of the track.
 
 ### Bring-up
 
@@ -259,6 +322,12 @@ re-home.
    must read a small **positive** angle, near 0 when straight up. If it is
    negative, set `PEND_SIGN -1`. If upright reads far from 0, fix
    `PEND_COUNTS_PER_REV`.
+   Reading this by eye is easy to get wrong (it was, on this rig). The
+   reliable check is physics: in any SWING/STEP log, when the cart
+   **accelerates** toward +x, a hanging bob must swing toward −x (`th`
+   moving from ±180° toward **negative** values, i.e. −170°, −160°…).
+   If it moves toward +170°, +160°… instead, flip `PEND_SIGN`. This rig
+   needs `PEND_SIGN −1`.
 5. Time 10 small swings, set `PEND_OMEGA0 = 2π / (time / 10)`.
 6. Set `SIGN_CHECK 0`, `STEP_TEST 1`, flash, keep a hand on STOP. Check the
    STEP lines: `v` should reach ±0.3 within ~0.1 s of each `vr` flip and hold
@@ -273,16 +342,17 @@ re-home.
 | Step test: `v` overshoots and rings around `vr` | lower `KV_P` or raise `VEL_FILTER_S` |
 | Swing never grows | raise `SWING_V`; if the cart lags the reversals, raise `SWING_PHASE_DEG` (10–20°) |
 | Swing grows but the cart runs toward the ends | lower `SWING_V` or raise `K_X_SWING` |
-| Flies over the top without catching | lower `SWING_V`, check `PEND_OMEGA0` |
-| Catches then falls immediately | raise `K_THETA` / `K_THETAD`; check `PEND_SIGN` |
-| Balances but oscillates faster and faster | lower `K_THETAD` or raise `VEL_FILTER_S` |
-| Balances but drifts to one end | adjust `PEND_TRIM_DEG` by 0.2–0.5° |
-| Slow wide cart oscillation while balanced | lower `K_X`, raise `K_XD` |
+| Stalls a few tens of degrees short of upright (`Eend` stuck below 0) | lower `SWING_E_SLOW` (stronger push for a small shortfall) or raise `SWING_E_TARGET` a little |
+| Reaches the top too fast to catch (`w` > 2 at ±14°) | raise `SWING_E_SLOW` or lower `SWING_E_TARGET`; don't raise `CATCH_RATE` — fast catches saturate the cart |
+| Spins over the top repeatedly | check `Eend` follows the running `E` near the top (`SWING_TOP_ZONE`); the negative push should slow the spin within a few turns |
+| Catches then falls within ~0.5 s | check `PEND_SIGN`; raise `BAL_POLE` (5 → 6) if too soft |
+| Balances but oscillates faster and faster | lower `BAL_POLE` (speed-loop lag too large for it) or raise `VEL_FILTER_S` |
+| Balances but parks off-centre / drifts to one end | check `PEND_COUNTS_PER_REV` (1968), then adjust `PEND_TRIM_DEG` (~160 mm per 3°) |
 
 ## Handoff summary
 
 ```
-ESP32 #1 ──0xAA (UART)──► sets FLAG_HOMING_COMPLETE in SPI byte 8 ──► Pi
+ESP32 #1 ──AA 55 A5 5A (UART)──► sets FLAG_HOMING_COMPLETE in SPI byte 8 ──► Pi
 ESP32 #2 ──GPIO 18 HIGH─────────────────────────────────────────────► Pi GPIO 13
 ```
 

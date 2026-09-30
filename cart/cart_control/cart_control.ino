@@ -16,9 +16,11 @@
 //   - UART packet now also carries the pendulum count (7 bytes).
 //   - STANDALONE_SWINGUP mode: after homing, wait for the pendulum to hang
 //     still, pump energy until it swings up, catch it near upright and
-//     balance with a PD on pendulum angle + PD on cart position (gains from
-//     the Feedback SwingHoldPendulum model). Falls back to swing-up if it
-//     drops, stops at a software cart limit.
+//     balance with state feedback on a cart acceleration (gains computed by
+//     pole placement from the measured swing period). Falls back to swing-up
+//     if it drops, stops at a software cart limit.
+//   - Homing-complete message to ESP32 #1 is AA 55 A5 5A (was one 0xAA byte,
+//     which motor noise produced at random, zeroing the counts mid-run).
 //   - SIGN_CHECK: motor stays off after homing and angle/position are
 //     printed, to confirm sign conventions before the motor is allowed to run.
 //   - Swing-up runs on a cart speed loop (SPEED_MAX_PWM 180); STEP_TEST
@@ -67,7 +69,7 @@
 //   Data bytes are 7-bit so never equal 0xFF.
 //
 // UART Protocol (send to ESP32 #1):
-//   Single byte 0xAA = homing complete
+//   AA 55 A5 5A = homing complete (was a single 0xAA — see doHoming)
 // =============================================================================
 
 #include <Wire.h>
@@ -137,6 +139,7 @@ Adafruit_ADS1115 ads;
 #define KICK_PROGRESS_COUNTS 200 // travel after a kick needed to count as "moving again"
 #define PHASE_TIMEOUT_MS  30000  // max time for any single homing phase
 #define LIMIT_RELEASE_MS  50     // switch must read released this long (debounce)
+#define LIMIT_CONFIRM_MS  5      // run mode: switch must read pressed this long
 
 // --- Settle after centering (before telling ESP32 #1 to zero its counts) ---
 #define SETTLE_COUNTS     5      // moving less than this counts as stopped
@@ -160,12 +163,18 @@ Adafruit_ADS1115 ads;
 #define SIGN_CHECK         0
 
 // --- Geometry / scaling ---
-// Pendulum counts per revolution. Measured ~1950-1990 swinging by hand;
-// HEDS-9140 500-line x4 = 2000. Re-measure: turn N full turns, divide by N.
-#define PEND_COUNTS_PER_REV 2000
+// Pendulum counts per revolution. Measured with the logger (cart/serial_log.py),
+// turning to a mark: 4 turns back = 1967/turn, 5 turns forward = 1969/turn,
+// back through the start mark within 9 counts. 2000 (the 500-line guess) put
+// upright 2.9 deg off and added 5.9 deg per full rotation during swing-up —
+// the balanced cart ran ~270 mm to one side into the soft limit.
+#define PEND_COUNTS_PER_REV 1968
 // +1 or -1: chosen so theta is POSITIVE when the top of the upright pendulum
 // leans toward the RIGHT limit switch. Checked with SIGN_CHECK.
-#define PEND_SIGN           1
+// -1 on this rig. Confirmed from swing-up logs, not by eye: when the cart
+// accelerates, a hanging bob must swing the opposite way, and with +1 it
+// read as swinging the same way every time (and in the first CHECK log).
+#define PEND_SIGN           -1
 // Upright offset (degrees). If the balanced cart creeps steadily one way,
 // nudge this by 0.2-0.5 deg until it holds still.
 #define PEND_TRIM_DEG       0.0f
@@ -179,20 +188,37 @@ Adafruit_ADS1115 ads;
 // Starts at RUN_MIN_PWM (just under the stall PWM) so small u still moves the
 // cart — replaces the Feedback model's friction compensation.
 #define RUN_MIN_PWM         30
-#define RUN_MAX_PWM         120
 #define RUN_RIGHT_EXTRA_PWM 10       // right needs more drive (homing 60 vs 50)
 #define U_EPS               0.02f
 
-// --- Balance: u = K_THETA*th + K_THETAD*th' + K_X*x + K_XD*x' ---
-// Feedback SwingHoldPendulum PIDs (pendulum P7 D4, cart P25 D1.5, in volts
-// over a +/-2.5 V range) divided by 2.5. All positive with the sign
-// conventions above: theta>0 = top leans right, x>0 = cart right of centre.
-#define K_THETA             2.8f     // per rad
-#define K_THETAD            1.6f     // per rad/s
-#define K_X                 10.0f    // per m
-#define K_XD                0.6f     // per m/s
+// --- Balance (on the speed loop) ---
+// Commands a cart acceleration a = KA_TH*th + KA_THD*th' + KA_X*x + KA_V*v
+// (m/s^2), integrated into the speed-loop command. Pendulum model, exact for
+// any mass distribution: th'' = w0^2*th - (w0^2/g)*a. The four gains put all
+// closed-loop poles at s = -BAL_POLE and are computed from it and PEND_OMEGA0
+// (see balanceGains()). All positive with the sign conventions: theta>0 = top
+// leans right, x>0 = cart right of centre, a>0 = accelerate right.
+// The Feedback model's PID gains (P7 D4 / P25 D1.5) do NOT transfer: its cart
+// signal is scaled by a negative factor and it drove a force-like amplifier.
+// On this rig they caught the pendulum and then ran the cart away from it.
+// Higher BAL_POLE = stiffer, needs more motor; 5 rad/s settles in ~0.2 s.
+#define BAL_POLE            5.0f     // rad/s
+// Self-trim of the upright angle while balancing. An angle offset d makes the
+// balanced cart park at x = -d * KA_TH / KA_X (~3.2 m per rad): first
+// successful balance held 18 s parked at -302 mm reading +5.5 deg. So adjust
+// the trim at -BAL_TRIM_RATE * x (rad/s per m) until the cart parks at centre.
+// Simulated (the model reproduced that run: parks at -303 mm): the cart first
+// moves the wrong way when the trim changes, so a fast trim fights the balance
+// — 0.05+ from the catch went unstable. Starting after BAL_TRIM_DELAY_MS, 0.04
+// brings a 5.5 deg offset to within ~6 mm of centre in ~30 s.
+#define BAL_TRIM_RATE       0.04f
+#define BAL_TRIM_DELAY_MS   2000     // let the catch settle first
+#define BAL_TRIM_MAX        0.17f    // rad (~10 deg)
 #define CATCH_ANGLE         0.25f    // rad (~14 deg) — switch to balance inside this
-#define CATCH_RATE          4.0f     // rad/s — too fast to catch above this
+// rad/s — too fast to catch above this. Stopping rotation w takes a cart speed
+// change of ~w * g/w0^2 = 0.31*w m/s: a catch at 2.37 rad/s saturated the
+// speed command (0.8 m/s) and fell. Faster passes just keep swinging.
+#define CATCH_RATE          2.0f
 #define DROP_ANGLE          0.6f     // rad (~35 deg) — lost it, back to swing-up
 
 // --- Cart speed loop (swing-up and step test) ---
@@ -213,8 +239,23 @@ Adafruit_ADS1115 ads;
 // passes the bottom (when it is fastest), minus a pull back to centre. Travel
 // per half swing ~ SWING_V * 0.56 s (0.22 m at 0.4 m/s).
 #define SWING_V             0.4f     // m/s
-#define SWING_E_SLOW        0.4f     // ramp the speed down over the last 0.4 of E
-#define SWING_MIN_SCALE     0.3f
+// Energy control: push = SWING_V * clamp((target - E) / SWING_E_SLOW, -1, 1).
+// Proportional, both ways: a small shortfall gets a small push (each reversal
+// adds roughly 0.6 of energy per m/s of speed change), and too much energy
+// pushes the other way and takes energy out. E is the height at the last swing
+// end (cos(th_end) - 1, exact), or the running E within SWING_TOP_ZONE of
+// upright, which also covers full rotations (no swing end). The running E
+// reads ~0.25 high at the bottom where the reversal happens, so it's not used
+// there.
+// History: a 50% minimum push arrived at 2.4 rad/s (not catchable) and then,
+// with no swing end to update E, pumped a spinning pendulum up to 16 rad/s.
+// Target +0.02 arrives at the top at ~1 rad/s, inside CATCH_RATE.
+#define SWING_E_TARGET      0.02f
+#define SWING_E_SLOW        0.6f
+#define SWING_TOP_ZONE      0.5f     // rad (~30 deg): running E trusted inside this
+#define SWING_END_W         0.3f     // rad/s: |th'| above this sets the swing direction
+// (Every swing-up run before the PEND_SIGN fix had the bob's side mirrored, so
+// the observations below were made with the wrong sign.)
 // When the reversal happens, as a phase lead on the bob's position (degrees):
 // 0 = as the bob passes the bottom, 90 = at the swing ends. Set it to the
 // cart's remaining reversal lag. Without the loop, the cart lagged ~90 deg, so
@@ -223,21 +264,38 @@ Adafruit_ADS1115 ads;
 #define SWING_PHASE_DEG     15.0f
 #define SWING_HYST          0.03f    // ~2 deg of bob swing: stops the push chattering
 // Reversals happen when the bob CROSSES from one side to the other. With no
-// crossing for SWING_KICK_MS (pendulum at rest) reverse on the timer instead,
-// at about half a swing (0.56 s): rocks the cart at the pendulum's own
-// frequency. Crossing-triggered, so a steady offset can't undo the kick.
-#define SWING_KICK_MS       600
+// crossing for SWING_KICK_MS (pendulum at rest) reverse on the timer instead
+// (the pendulum's half swing is 0.56 s). Crossing-triggered, so a steady offset
+// can't undo the kick. At 600 it fired just before a natural crossing (small
+// swings cross every ~565 ms), so keep it well above half a swing.
+#define SWING_KICK_MS       800
+// Kick only while nearly at rest (swing under ~25 deg). Big swings slow down
+// near the top, so bottom crossings can be > 0.8 s apart: at ~130 deg the
+// timer fired every swing ~70 deg before the bottom and the swing stalled at
+// ~50 deg from upright.
+#define SWING_KICK_E        -1.9f
 #define K_X_SWING           1.0f     // m/s per m: pull back toward centre
 // No outward speed beyond this fraction of half-track, until back inside 70%
 // of it (no chatter at the edge)
 #define SWING_X_FRAC        0.6f
 #define SOFT_LIMIT_FRAC     0.85f    // fault stop beyond this fraction of half-track
+// Soft limit trips early enough to stop in time: when |x| + v^2/(2*BRAKE_DECEL)
+// passes it while moving outward. On a fault the speed loop brakes to a stop
+// (up to BRAKE_MS) instead of coasting: coasting only slows ~1.3 m/s^2, so
+// tripping AT the limit at 0.8 m/s slammed the cart into the end rail.
+#define BRAKE_DECEL         3.0f     // m/s^2, conservative for powered braking
+#define BRAKE_MS            600
+#define BRAKE_DONE_V        0.05f    // m/s: stopped
 
 // --- Speed loop step test ---
 // 1 = after HANG, instead of swinging up: +STEP_V for STEP_MS, -STEP_V for
 // STEP_MS, STEP_CYCLES times, then stop. Prints speed every STEP_PRINT_MS.
+// Also checks the pendulum model: with the pendulum hanging, each cart
+// acceleration a should kick it at th'' = +3.21*a (th moving from 180 toward
+// -179, -178... when accelerating toward +x).
 #define STEP_TEST           0
 #define STEP_V              0.3f     // m/s (travel ~STEP_V * STEP_MS = 0.18 m)
+// (the pendulum must be hanging still for the model check)
 #define STEP_MS             600
 #define STEP_CYCLES         3
 #define STEP_PRINT_MS       20
@@ -279,7 +337,7 @@ enum Dir { DIR_LEFT, DIR_RIGHT };
 
 // Standalone controller state (declared up here for the Arduino prototype
 // generator, like StallGuard below)
-enum BalState { BAL_HANG, BAL_CHECK, BAL_SWING, BAL_BALANCE, BAL_STEP, BAL_DONE };
+enum BalState { BAL_HANG, BAL_CHECK, BAL_SWING, BAL_BALANCE, BAL_STEP, BAL_DONE, BAL_BRAKE };
 BalState balState = BAL_HANG;
 
 // Declared up here (not next to stallCheck) because the Arduino IDE inserts
@@ -614,7 +672,10 @@ bool doHoming() {
   Serial.println("Homing complete!");
 
   // Notify ESP32 #1 — it will set FLAG_HOMING_COMPLETE in SPI status byte to Pi
-  Serial2.write(0xAA);
+  // and zero both counts. 4 bytes, not 1: noise on the line made single 0xAA
+  // bytes and zeroed the counts mid-run.
+  static const uint8_t HOMING_MAGIC[4] = { 0xAA, 0x55, 0xA5, 0x5A };
+  Serial2.write(HOMING_MAGIC, sizeof(HOMING_MAGIC));
 
   return true;
 }
@@ -661,6 +722,13 @@ void runHoming() {
 // =============================================================================
 int32_t       pendDownRef = 0;
 float         theta = 0, thetaDot = 0, xPos = 0, xDot = 0, energy = -2, uOut = 0, vRefOut = 0;
+float         stateDt = 0.002f;     // seconds between the last two samples
+float         energyEnd = -2;       // energy at the last swing end (cos(th) - 1)
+int           swingDir  = 0;        // sign of th' (with SWING_END_W hysteresis)
+float         balVRef = 0;          // balance: integrated speed command
+float         balTrim = 0;          // balance: learned upright offset (rad)
+unsigned long balStartMs = 0;       // when the current balance began
+float         kaTh = 0, kaThd = 0, kaX = 0, kaV = 0;   // balance gains (balanceGains())
 int16_t       lastCart = 0;
 int32_t       lastPend = 0;
 unsigned long lastSampleUs = 0;
@@ -674,6 +742,7 @@ int64_t       hangSum = 0;
 uint32_t      hangN   = 0;
 unsigned long hangStart = 0;
 unsigned long stepStart = 0;
+unsigned long brakeStart = 0;
 unsigned long lastPrint = 0;
 
 float wrapPi(float a) {
@@ -693,9 +762,6 @@ void driveUCap(float u, int maxPwm) {
   if (u > 0) driveRight(min(pwm + RUN_RIGHT_EXTRA_PWM, 255));
   else       driveLeft(pwm);
 }
-
-// Balance output (unchanged cap, so the balance gains keep their scale)
-void driveU(float u) { driveUCap(u, RUN_MAX_PWM); }
 
 // Speed loop: drive the cart at vRef m/s (> 0 = right)
 void speedDrive(float vRef) {
@@ -720,12 +786,16 @@ void standaloneStart() {
   lastFlipMs = millis();
   bobSide    = 0;
   pumpBlocked = false;
+  energyEnd  = -2;
+  swingDir   = 0;
+  balTrim    = 0;
+  balanceGains();
   Serial.println("Standalone: waiting for the pendulum to hang still...");
 }
 
 void enterState(BalState s) {
   balState = s;
-  const char* names[] = { "HANG", "CHECK", "SWING", "BALANCE", "STEP TEST", "DONE" };
+  const char* names[] = { "HANG", "CHECK", "SWING", "BALANCE", "STEP TEST", "DONE", "BRAKE" };
   Serial.printf(">> %s\n", names[s]);
 }
 
@@ -741,6 +811,7 @@ void updateState() {
     haveSample = true;
   }
   float dt = constrain((now - lastSampleUs) * 1e-6f, 0.0005f, 0.02f);
+  stateDt  = dt;
   float a  = dt / (VEL_FILTER_S + dt);
   float thetaRate = PEND_SIGN * (pend_position - lastPend) * k / dt;
   float xRate     = cartDir * (cart_position - lastCart) * CART_M_PER_COUNT / dt;
@@ -793,6 +864,21 @@ float swingV() {
   float bobPos = sinf(theta);
   float bobVel = cosf(theta) * thetaDot / PEND_OMEGA0;
   float lead   = bobPos * cosf(ph) + bobVel * sinf(ph);
+  // Swing energy from height at each swing end (th' changes sign): th' = 0
+  // there, so cos(th) - 1 is the exact energy, and it is known half a swing
+  // before the next reversal at the bottom. (Recording the peak at the next
+  // bottom crossing instead ran half a swing late: after a big energy change
+  // it kept pushing weakly on a small swing, or hard enough to spin it over.)
+  float height = cosf(theta) - 1.0f;
+  int dir = swingDir;
+  if      (thetaDot >  SWING_END_W) dir =  1;
+  else if (thetaDot < -SWING_END_W) dir = -1;
+  if (dir != swingDir) {
+    if (swingDir != 0) energyEnd = height;
+    swingDir = dir;
+  }
+  if (fabsf(theta) < SWING_TOP_ZONE) energyEnd = energy;
+
   int side = bobSide;
   if      (lead >  SWING_HYST) side =  1;
   else if (lead < -SWING_HYST) side = -1;
@@ -801,15 +887,19 @@ float swingV() {
     bobSide = side;
     pumpDir = -side;
     lastFlipMs = millis();
-  } else if (millis() - lastFlipMs > SWING_KICK_MS) {
-    // No crossing for a while — pendulum at rest: reverse on the timer
+  } else if (energy < SWING_KICK_E && millis() - lastFlipMs > SWING_KICK_MS) {
+    // No crossing for a while and barely swinging — reverse on the timer
     pumpDir = -pumpDir;
     lastFlipMs = millis();
   }
 
-  float need = -energy;   // how far below upright energy
-  float pump = 0;
-  if (need > 0) pump = pumpDir * SWING_V * constrain(need / SWING_E_SLOW, SWING_MIN_SCALE, 1.0f);
+  // The current height is also a lower bound on energy (covers going over the top)
+  float eNow = max(energyEnd, height);
+
+  // Below target: pump. Above target: the negative scale pushes the other way
+  // and takes energy out.
+  float need = SWING_E_TARGET - eNow;
+  float pump = pumpDir * SWING_V * constrain(need / SWING_E_SLOW, -1.0f, 1.0f);
 
   // Too far out: no outward speed until well back inside
   float lim = SWING_X_FRAC * halfTrackM();
@@ -820,8 +910,38 @@ float swingV() {
   return pump - K_X_SWING * xPos;
 }
 
-float balanceU() {
-  return K_THETA * theta + K_THETAD * thetaDot + K_X * xPos + K_XD * xDot;
+// Balance gains for all four closed-loop poles at -p. With l = g/w0^2 and
+// a = kaTh*th + kaThd*th' + kaX*x + kaV*v, the characteristic polynomial is
+//   s^4 + (kaThd/l - kaV) s^3 + (kaTh/l - kaX - w0^2) s^2 + w0^2 kaV s + w0^2 kaX
+// Matching (s + p)^4 = s^4 + 4p s^3 + 6p^2 s^2 + 4p^3 s + p^4 gives:
+void balanceGains() {
+  const float p  = BAL_POLE;
+  const float w2 = PEND_OMEGA0 * PEND_OMEGA0;
+  const float l  = 9.81f / w2;
+  kaX   = p * p * p * p / w2;
+  kaV   = 4.0f * p * p * p / w2;
+  kaTh  = l * (6.0f * p * p + kaX + w2);
+  kaThd = l * (4.0f * p + kaV);
+  Serial.printf("Balance gains (pole %.1f): th %.1f  th' %.1f  x %.1f  v %.1f\n",
+                p, kaTh, kaThd, kaX, kaV);
+}
+
+// Called on the swing -> balance switch: start the speed command from the
+// cart's current speed so the handover doesn't jerk the cart
+void balanceStart() {
+  balVRef = xDot;
+  balStartMs = millis();   // balTrim itself is kept across catches
+}
+
+// Cart speed command while balancing
+float balanceV() {
+  // Slow self-trim: a cart parked off-centre means the angle reads off; shift
+  // the trim until the cart parks at centre (see BAL_TRIM_RATE)
+  if (millis() - balStartMs > BAL_TRIM_DELAY_MS)
+    balTrim = constrain(balTrim - BAL_TRIM_RATE * xPos * stateDt, -BAL_TRIM_MAX, BAL_TRIM_MAX);
+  float a = kaTh * (theta - balTrim) + kaThd * thetaDot + kaX * xPos + kaV * xDot;
+  balVRef = constrain(balVRef + a * stateDt, -V_MAX, V_MAX);
+  return balVRef;
 }
 
 void standaloneStep() {
@@ -833,20 +953,36 @@ void standaloneStep() {
   } else {
     updateState();
 
-    bool motorOff = balState == BAL_CHECK || balState == BAL_DONE;
+    bool checkFaults = balState != BAL_CHECK && balState != BAL_DONE && balState != BAL_BRAKE;
     const char* fault = NULL;
-    if (!motorOff && fabsf(xPos) > SOFT_LIMIT_FRAC * halfTrackM()) fault = "SOFT LIMIT";
-    if (!motorOff && fabsf(xDot) > SPEED_TRIP)                     fault = "OVERSPEED";
+    if (checkFaults) {
+      float softLim  = SOFT_LIMIT_FRAC * halfTrackM();
+      float stopDist = xDot * xDot / (2.0f * BRAKE_DECEL);
+      bool  outward  = xPos * xDot > 0;
+      if (fabsf(xPos) > softLim || (outward && fabsf(xPos) + stopDist > softLim))
+        fault = "SOFT LIMIT";
+      if (fabsf(xDot) > SPEED_TRIP) fault = "OVERSPEED";
+    }
     if (fault) {
-      stopMotor();
-      systemEnabled = false;
-      clearHomingDone();
-      Serial.printf("%s: cart at %.0f mm, %.2f m/s — motor stopped. Press START to re-home.\n",
+      Serial.printf("%s: cart at %.0f mm, %.2f m/s — braking. Press START to re-home.\n",
                     fault, xPos * 1000.0f, xDot);
-      return;
+      clearHomingDone();
+      brakeStart = millis();
+      enterState(BAL_BRAKE);
     }
 
     switch (balState) {
+      case BAL_BRAKE:
+        // Powered stop, then disable. Timeout in case the loop can't stop it.
+        if (fabsf(xDot) < BRAKE_DONE_V || millis() - brakeStart > BRAKE_MS) {
+          stopMotor();
+          uOut = vRefOut = 0;
+          systemEnabled = false;
+          Serial.printf("Stopped at %.0f mm.\n", xPos * 1000.0f);
+        } else {
+          speedDrive(0);
+        }
+        return;
       case BAL_CHECK:
       case BAL_DONE:
         stopMotor();
@@ -867,7 +1003,8 @@ void standaloneStep() {
       case BAL_SWING:
         if (fabsf(theta) < CATCH_ANGLE && fabsf(thetaDot) < CATCH_RATE) {
           enterState(BAL_BALANCE);
-          driveU(balanceU());
+          balanceStart();
+          speedDrive(balanceV());
         } else {
           speedDrive(swingV());
         }
@@ -877,8 +1014,7 @@ void standaloneStep() {
           enterState(BAL_SWING);
           speedDrive(swingV());
         } else {
-          vRefOut = 0;
-          driveU(balanceU());
+          speedDrive(balanceV());
         }
         break;
       default:
@@ -886,19 +1022,26 @@ void standaloneStep() {
     }
   }
 
-  // Step test prints fast so the speed response is visible
-  unsigned long printEvery = balState == BAL_STEP ? STEP_PRINT_MS : PRINT_MS;
+  // Step test and balance print fast so the cart and pendulum response is visible
+  unsigned long printEvery =
+    (balState == BAL_STEP || balState == BAL_BALANCE) ? STEP_PRINT_MS : PRINT_MS;
   if (millis() - lastPrint >= printEvery) {
     lastPrint = millis();
     if (balState == BAL_HANG) {
       Serial.printf("HANG  pend %ld  swing %ld\n", (long)pend_position, (long)(hangMax - hangMin));
     } else if (balState == BAL_STEP) {
-      Serial.printf("STEP t %4lu  vr %5.2f  v %6.3f  u %5.2f  x %6.1f\n",
-                    millis() - stepStart, vRefOut, xDot, uOut, xPos * 1000.0f);
+      Serial.printf("STEP t %4lu  vr %5.2f  v %6.3f  u %5.2f  x %6.1f  th %7.2f  w %6.2f\n",
+                    millis() - stepStart, vRefOut, xDot, uOut, xPos * 1000.0f,
+                    theta * RAD_TO_DEG, thetaDot);
+    } else if (balState == BAL_BALANCE) {
+      Serial.printf("BAL   th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  trim %5.2f deg  u %5.2f\n",
+                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut,
+                    balTrim * RAD_TO_DEG, uOut);
     } else if (balState != BAL_DONE) {
-      Serial.printf("%s th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  E %5.2f  u %5.2f\n",
+      Serial.printf("%s th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  E %5.2f  Eend %5.2f  u %5.2f\n",
                     balState == BAL_CHECK ? "CHECK" : balState == BAL_SWING ? "SWING" : "BAL  ",
-                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut, energy, uOut);
+                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut, energy,
+                    energyEnd, uOut);
     }
   }
 }
@@ -975,10 +1118,21 @@ void loop() {
   readUART();
 
   // --- Hardware safety: limit switches stop the motor ---
-  if (anyLimitHit() && systemEnabled) {
+  // Must read pressed for LIMIT_CONFIRM_MS: hard motor reversals put noise
+  // spikes on the limit inputs (false hits at x = -121 mm and +64 mm, both at
+  // full-power reversals). A real hit lasts far longer than that.
+  static unsigned long limitSince = 0;
+  static bool          limitSeen  = false;
+  if (anyLimitHit()) {
+    if (!limitSeen) { limitSeen = true; limitSince = millis(); }
+  } else {
+    limitSeen = false;
+  }
+  if (limitSeen && millis() - limitSince >= LIMIT_CONFIRM_MS && systemEnabled) {
     stopMotor();
     systemEnabled = false;
-    Serial.println("LIMIT HIT — motor stopped. Press START to re-home.");
+    Serial.printf("LIMIT HIT (%s) — motor stopped. Press START to re-home.\n",
+                  leftLimitHit() ? "left" : "right");
   }
 
   // --- Stop trigger (button or Pi GPIO) ---
