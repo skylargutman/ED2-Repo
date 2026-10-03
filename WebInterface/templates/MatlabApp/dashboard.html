@@ -22,7 +22,10 @@
     <!-- Experiment Selection Grid -->
     <div class="row g-4">
         <!-- Experiment 1: Cart Control -->
-        {% include './snippets/experiment.html' with id="CartControl" name="Cart Control" %}
+        {% for exp_name in experiments %}
+            {% include './snippets/experiment.html' with id=exp_name name="Cart Control" %}
+        {% endfor %}
+        
 
         <!-- Experiment 2: TestCartPend1 -->
         {% include './snippets/experiment.html' with id="TestCartPend1" name="TestCartPend1" %}

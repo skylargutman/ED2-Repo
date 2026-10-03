@@ -1,39 +1,39 @@
 {
-	"name": "SwingHoldPendulum",
-	"parameters": {
-		"PID_D": {
-			"proportional": {
-				"value": 70,
-				"editable": true,
-				"unit": "kg"
-			},
-			"integral": {
-				"value": 0.5,
-				"editable": true,
-				"unit": "kg/s"
-			},
-			"derivative": {
-				"value": 4.0,
-				"editable": true,
-				"unit": "kg\u22c5s"
-			}
-		},
-		"PID_D1": {
-			"proportional": {
-				"value": 25.0,
-				"editable": true,
-				"unit": "kg"
-			},
-			"integral": {
-				"value": 0.2,
-				"editable": true,
-				"unit": "kg/s"
-			},
-			"derivative": {
-				"value": 1.5,
-				"editable": true,
-				"unit": "kg\u22c5s"
-			}
-		}
-	}
+    "name": "SwingHoldPendulum",
+    "parameters": {
+        "PID_D": {
+            "proportional": {
+                "value": 70,
+                "editable": true,
+                "unit": "kg"
+            },
+            "integral": {
+                "value": 0.5,
+                "editable": true,
+                "unit": "kg/s"
+            },
+            "derivative": {
+                "value": 4.0,
+                "editable": true,
+                "unit": "kg⋅s"
+            }
+        },
+        "PID_D1": {
+            "proportional": {
+                "value": 25.0,
+                "editable": true,
+                "unit": "kg"
+            },
+            "integral": {
+                "value": 0.2,
+                "editable": true,
+                "unit": "kg/s"
+            },
+            "derivative": {
+                "value": 1.5,
+                "editable": true,
+                "unit": "kg⋅s"
+            }
+        }
+    }
 }
