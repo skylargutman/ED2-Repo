@@ -6,7 +6,7 @@
 # Flow:  camera Pi --SRT/8890--> MediaMTX --WebRTC--> browser (via nginx /stream/whep/)
 
 logLevel: info
-logDestinations: [stdout]
+logDestinations: [ stdout ]
 
 ###############################################
 # Listeners
@@ -32,7 +32,7 @@ webrtcEncryption: false
 #
 # Naming the public IP here makes MediaMTX advertise a reachable candidate.
 # If this instance's IP ever changes, THIS LINE MUST CHANGE TOO.
-webrtcAdditionalHosts: [129.153.42.213]
+webrtcAdditionalHosts: [ 129.153.42.213 ]
 webrtcIPsFromInterfaces: false
 
 # Media port -- must be open as UDP in both the OCI security list and the
@@ -51,17 +51,20 @@ playback: false
 
 ###############################################
 # Authentication
-#
-# Anonymous, matching the current Pi setup (stream.sh sends no credentials).
-# Publishing is therefore open to anyone who can reach 8890/udp.
-# See docs/open-questions.md for the srtPublishPassphrase upgrade.
+# Anonymous users can only read (watch)
 authInternalUsers:
   - user: any
     pass:
-    ips: []
+    ips: [ ]
+    permissions:
+      - action: read
+  # Publishing Users
+  - user: pendulum
+    pass: <set-in-env>
+    ips: [ ]
     permissions:
       - action: publish
-      - action: read
+        path: pendulum
 
 ###############################################
 # Paths

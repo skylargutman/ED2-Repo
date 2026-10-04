@@ -5,6 +5,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+EnvironmentFile=/home/skylar/stream.env
 ExecStartPre=/bin/sleep 10
 ExecStart=/home/skylar/stream.sh
 Restart=always

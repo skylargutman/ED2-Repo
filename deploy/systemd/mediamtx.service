@@ -31,6 +31,8 @@ ExecStart=/usr/local/bin/mediamtx /usr/local/etc/mediamtx.yml
 Restart=always
 RestartSec=5
 
+EnvironmentFile=/opt/ed2/ED2-Repo/deploy/mediamtx.env
+
 # MediaMTX buffers video in RAM (hlsSegmentMaxSize/recordMaxPartSize are 50M
 # each). On the 6 GB A1 this is comfortable, but the cap keeps a runaway
 # muxer from touching the rest of the stack.
