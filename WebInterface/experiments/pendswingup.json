@@ -1,5 +1,6 @@
 {
-	"name": "PendSwingUp",
+	"id": "PendSwingUp",
+	"name": "Pendulum Swing Up",
 	"parameters": {
 		"voltage amplitude": {
 			"value": 0.2,

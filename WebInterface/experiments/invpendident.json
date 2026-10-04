@@ -1,5 +1,6 @@
 {
-	"name": "InvPendIdent",
+	"id": "InvPendIdent",
+	"name": "Inverted Pendulum Ident",
 	"parameters": {
 		"PID": {
 			"proportional": {

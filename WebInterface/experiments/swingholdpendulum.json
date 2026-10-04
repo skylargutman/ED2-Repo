@@ -1,5 +1,6 @@
 {
-    "name": "SwingHoldPendulum",
+    "id": "SwingHoldPendulum",
+    "name": "Swing Hold Pendulum",
     "parameters": {
         "PID_D": {
             "proportional": {

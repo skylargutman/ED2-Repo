@@ -1,5 +1,6 @@
 {
-	"name": "PendStabPD",
+	"id": "PendStabPD",
+	"name": "Pendulum Stab PD",
 	"parameters": {
 		"PID_1": {
 			"proportional": {

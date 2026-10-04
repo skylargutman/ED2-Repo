@@ -1,5 +1,6 @@
 {
-	"name": "CartControl",
+	"id": "CartControl",
+	"name": "Cart Control",
 	"parameters": {
 		"PID_D": {
 			"proportional": {

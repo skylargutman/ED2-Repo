@@ -1,5 +1,6 @@
 {
-	"name": "TestCartPend1",
+	"id": "TestCartPend1",
+	"name": "Test Cart Pendulum 1",
 	"parameters": {
 		"kp": {
 			"value": 27.8,

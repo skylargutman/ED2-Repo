@@ -143,7 +143,7 @@ def dashboard(request):
 
     context = {
         "status": status_dict,
-        "experiments": list(EXPERIMENTS.keys())
+        "experiments": {key: value.name for key, value in EXPERIMENTS.items()},
     }
     return render(request, 'MatlabApp/dashboard.html', context)
 

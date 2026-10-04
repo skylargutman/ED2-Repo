@@ -1,4 +1,5 @@
 {
-	"name": "PendulumFriction",
+	"id": "PendulumFriction",
+	"name": "Pendulum Friction",
 	"parameters": {}
 }

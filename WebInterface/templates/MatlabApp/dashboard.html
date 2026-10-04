@@ -22,43 +22,10 @@
     <!-- Experiment Selection Grid -->
     <div class="row g-4">
         <!-- Experiment 1: Cart Control -->
-        {% for exp_name in experiments %}
-            {% include './snippets/experiment.html' with id=exp_name name="Cart Control" %}
+        {% for exp_id, exp_name in experiments.items %}
+            {% include './snippets/experiment.html' with id=exp_id name=exp_name %}
         {% endfor %}
         
-
-        <!-- Experiment 2: TestCartPend1 -->
-        {% include './snippets/experiment.html' with id="TestCartPend1" name="TestCartPend1" %}
-
-        <!-- Experiment 3: Crane Ident -->
-        {% include './snippets/experiment.html' with id="CraneIdent" name="Crane Ident" %}
-
-        <!-- Experiment 4: Crane Stab -->
-        {% include './snippets/experiment.html' with id="CraneStab" name="Crane Stab" %}
-
-        <!-- Experiment 5: InvPend Ident -->
-        {% include './snippets/experiment.html' with id="InvPendIdent" name="InvPend Ident" %}
-
-        <!-- Experiment 6: PendStab PD -->
-        {% include './snippets/experiment.html' with id="PendStabPD" name="PendStab PD" %}
-
-        <!-- Experiment 7: Pend Swing Up -->
-        {% include './snippets/experiment.html' with id="PendSwingUp" name="Pend Swing Up" %}
-
-        <!-- Experiment 8: Pendulum Friction -->
-        {% include './snippets/experiment.html' with id="PendulumFriction" name="Pendulum Friction" %}
-
-        <!-- Experiment 9: SwingHoldPendulum  -->
-        {% include './snippets/experiment.html' with id="SwingHoldPendulum" name="Swing Hold Pendulum" %}
-
-        <!-- Experiment 10: SwingHoldPendulum Extra -->
-        {% include './snippets/experiment.html' with id="SwingHoldPendulumExtra" name="Swing Hold Pendulum Extra" %}
-
-        <!-- Experiment 11: UpDown Pendulum -->
-        {% include './snippets/experiment.html' with id="UpDownPendulum" name="UpDown Pendulum" %}
-
-        <!-- Experiment 12: Pendulum Test -->
-        {% include './snippets/experiment.html' with id="PendulumTest" name="Pendulum Test" %}
     </div>
 
     <!-- System Status Footer -->
