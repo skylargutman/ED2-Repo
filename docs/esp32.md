@@ -288,6 +288,32 @@ of centre, `u > 0` = drive right. `cartDir` is learned during homing;
 `RUN_MIN_PWM`…`SPEED_MAX_PWM` (30…180, +10 when driving right), starting just
 under the stall PWM so small corrections still move the cart.
 
+### USB serial commands and online parameters (v10.1)
+
+ESP32 #2 accepts one command per line on its USB serial port (115200 baud).
+Replies start with `ok `, `err `, `param `, `params end` or `status `, so they
+can be told apart from telemetry.
+
+| Command | Effect |
+|---|---|
+| `home` (or `start`) | Same as the START button. Only while idle; otherwise `err home busy (STATE)` |
+| `stop` | Same as the STOP button. Always accepted, **including during homing** |
+| `status` | `status IDLE`, `HOMING`, `HANG`, `SWING`, `BALANCE`, `BRAKE`, … |
+| `params` | One `param NAME VALUE MIN MAX DEFAULT UNIT \| description` line per setting, then `params end` |
+| `set NAME VALUE` | Change a setting. Only while idle and within its limits: `ok NAME VALUE` or `err NAME …` |
+| `defaults` | Restore all settings to the values compiled into the firmware |
+
+The adjustable settings are the variables marked `[online]` in
+`cart_control.ino`, listed with their limits in the `PARAMS` table. The limits
+are enforced on the ESP32, not just in a frontend. Safety limits and
+calibration (soft limit, overspeed, PWM cap, counts per revolution,
+`PEND_SIGN`, `PEND_OMEGA0`) are not in the table. Each run prints
+`run params: NAME=value …` so the log records what was used. Values reset to
+the compiled defaults on reboot.
+
+`BAL_MODE 1` switches balance from pole placement (`BAL_POLE`) to the four
+manual gains `BAL_K_TH`, `BAL_K_THD`, `BAL_K_X`, `BAL_K_V`.
+
 ### Cart speed loop
 
 Swing-up commands a cart **speed**, not a PWM:
@@ -307,8 +333,17 @@ Software faults — the cart would pass 85 % of the half-track, predicted from
 `|x| + v²/(2·3 m/s²)` while moving outward, or exceeds 1.8 m/s — **brake**
 through the speed loop (`BRAKE` state, ≤ 0.6 s) and then disable. The first
 version only cut the motor once the cart was already at 85 %; coasting slows
-only ~1.3 m/s², so at 0.8 m/s it slammed into the end rail. All need START to
-re-home. In run mode a limit switch must read pressed for 5 ms
+only ~1.3 m/s², so at 0.8 m/s it slammed into the end rail.
+
+After a **soft-limit** brake the board **re-homes automatically** and swings
+up again (e.g. after the pendulum is knocked over and the cart runs out), up
+to `AUTO_REHOME_MAX = 3` times in a row; the count resets once a balance holds
+for 5 s, or on a START press. Overspeed, limit-switch hits and STOP still stop
+for good and need START. Note: STOP is not checked during homing, so for the
+~10 s of an automatic re-home only the limit switches and the power switch
+can stop the rig.
+
+In run mode a limit switch must read pressed for 5 ms
 (`LIMIT_CONFIRM_MS`): full-power reversals put noise spikes on the limit
 inputs and caused false hits near the centre of the track.
 

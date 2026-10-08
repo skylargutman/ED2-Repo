@@ -1,91 +1,52 @@
 // =============================================================================
-// ESP32 #2 — Motor Control Firmware
-// Version: 10.1
-// Description: Controls BTS7960 IBT-2 H-bridge motor driver.
-//              Holds motor outputs LOW at boot to prevent runaway on power-up.
-//              Waits for START button OR Pi GPIO trigger before homing.
-//              Runs homing routine, sends 0xAA to ESP32 #1 on completion.
-//              Drives GPIO 18 HIGH when homing complete — Pi reads this to know
-//              when to launch Simulink model.
-//              Pi GPIO stop signal mirrors physical STOP button behavior.
-//              Normal operation reads DAC voltage from ADS1115 and drives motor,
-//              or (STANDALONE_SWINGUP) swings the pendulum up and balances it
-//              on this board alone, with no Pi.
+// Single-board cart + pendulum controller (one ESP32)
+// Version: 11.0
+// Description: One ESP32 reads both quadrature encoders (PCNT hardware),
+//              drives the BTS7960 IBT-2 H-bridge, homes the cart, then swings
+//              the pendulum up and balances it. Replaces the two-board setup
+//              (cart/esp32_encoder_v9 + cart/cart_control), so there is no
+//              UART link between boards and no Pi / DAC / ADS1115 path.
+//              Control and telemetry over USB serial (115200), same protocol
+//              as cart_control v10.1, so pendulum-remote and serial_log.py work.
 //
-// Changes in 10.1 (same encoder firmware v9.2):
-//   - Online parameters: the settings marked [online] can be read and changed
-//     over USB serial while idle, within limits enforced here (PARAMS table).
-//     Manual balance-gain mode (BAL_MODE 1).
-//   - USB serial commands: home, stop, status, params, set, defaults.
-//   - STOP now works during homing (button, Pi or serial).
-//   - Soft limit re-homes and tries again (up to AUTO_REHOME_MAX).
-//
-// Changes in 10.0 (requires encoder firmware v9.2 — flash both boards):
-//   - UART packet now also carries the pendulum count (7 bytes).
-//   - STANDALONE_SWINGUP mode: after homing, wait for the pendulum to hang
-//     still, pump energy until it swings up, catch it near upright and
-//     balance with state feedback on a cart acceleration (gains computed by
-//     pole placement from the measured swing period). Falls back to swing-up
-//     if it drops, stops at a software cart limit.
-//   - Homing-complete message to ESP32 #1 is AA 55 A5 5A (was one 0xAA byte,
-//     which motor noise produced at random, zeroing the counts mid-run).
-//   - SIGN_CHECK: motor stays off after homing and angle/position are
-//     printed, to confirm sign conventions before the motor is allowed to run.
-//   - Swing-up runs on a cart speed loop (SPEED_MAX_PWM 180); STEP_TEST
-//     checks that loop on its own first. Soft-limit and overspeed fault stops.
-//
-// Changes in 9.8 (requires encoder firmware v9.1 — flash both boards):
-//   - New UART packet format with 7-bit data bytes. The old format put 0xFF
-//     in a data byte for positions -256..-1, freezing cart_position there and
-//     making centering hunt back and forth when center was near 0.
-//   - After centering, wait for the cart to stop before sending 0xAA, so
-//     ESP32 #1 zeroes its counts where the cart actually rests.
-//   - Centering slows down over the last 3000 counts (was 500) and re-approaches
-//     if the cart settles more than CENTER_ACCEPT from center. With the short
-//     ramp it arrived at full speed and coasted ~1400 counts past center.
-//
-// Changes in 9.7:
-//   - Homing: separate speed per direction. At PWM 45 the cart could not keep
-//     moving right at all, so HOMING_PWM_RIGHT is higher than HOMING_PWM_LEFT.
-//   - Homing: stall detection with a short breakaway kick as a backstop.
-//   - Homing: every wait loop has a timeout. A stalled motor now fails homing
-//     with an error instead of sitting powered forever.
-//   - Run mode: motor only follows the DAC after it has seen the 2.5V neutral
-//     ("armed"), and disarms if the signal sits near 0V. Without the Pi, the
-//     ADS1115 reads ~0V, which v9.6 treated as full-speed left.
-//   - Boot banner printed first thing so the running version is obvious.
+// Changes from cart_control v10.1:
+//   - Encoders counted here (code from esp32_encoder_v9 v9.2): 32-bit counts,
+//     sampled every 2 ms (500 Hz control step, as before).
+//   - Homing zeroes the cart count in software at centre (was the AA 55 A5 5A
+//     message to ESP32 #1).
+//   - Removed: DAC-follow mode, ADS1115, Pi GPIO start/stop/homing-done lines.
+//   - Status LED (GPIO 2) on while homed and running; a limit-switch hit now
+//     turns it off too (E2 in the handoff report).
+//   - The learned upright trim is kept across re-homes (reset only at boot):
+//     on 2026-10-02 it settled at 5.5-6.4 deg every run, and starting from 0
+//     after an automatic re-home parked the cart at -384 mm (soft limit).
+//   - New serial command "io": counts and switch states, for bring-up.
 //
 // Pin Assignments:
+//   GPIO 39 : Cart encoder A       (input-only; 4.7k pull-up to 5V + 10k/22k divider)
+//   GPIO 36 : Cart encoder B       (same)
+//   GPIO 35 : Pendulum encoder A   (same)
+//   GPIO 34 : Pendulum encoder B   (same)
 //   GPIO 25 : RPWM  (IBT-2)
 //   GPIO 26 : LPWM  (IBT-2)
-//   GPIO 27 : START button         (INPUT_PULLUP, active LOW)
-//   GPIO 14 : STOP button          (INPUT_PULLUP, active LOW)
-//   GPIO 32 : Left limit switch    (INPUT_PULLUP, active LOW)
-//   GPIO 33 : Right limit switch   (INPUT_PULLUP, active LOW)
-//   GPIO 17 : UART2 TX → ESP32 #1
-//   GPIO 16 : UART2 RX ← ESP32 #1
-//   GPIO 21 : I2C SDA (ADS1115)
-//   GPIO 22 : I2C SCL (ADS1115)
-//   GPIO  4 : Pi homing start trigger  (INPUT_PULLDOWN, active HIGH)
-//   GPIO  5 : Pi stop trigger          (INPUT_PULLDOWN, active HIGH)
-//   GPIO 18 : Homing complete signal   (OUTPUT, Pi GPIO 13 Pin 33)
-//
-// UART Protocol (receive from ESP32 #1, encoder firmware v9.2+):
-//   7-byte framed packet every 2ms:
-//   0xFF | m[6:0] | m[13:7] | m[15:14] | p[6:0] | p[13:7] | p[15:14]
-//   → int16 cart count, low 16 bits of pendulum count (unwrapped here).
-//   Data bytes are 7-bit so never equal 0xFF.
-//
-// UART Protocol (send to ESP32 #1):
-//   AA 55 A5 5A = homing complete (was a single 0xAA — see doHoming)
+//   GPIO 27 : START button         (normally open to GND, pull-up, active LOW)
+//   GPIO 14 : STOP button          (normally CLOSED to GND, open = stop)
+//   GPIO 32 : Left limit switch    (to GND, pull-up, active LOW)
+//   GPIO 33 : Right limit switch   (to GND, pull-up, active LOW)
+//   GPIO  2 : Status LED           (on-board LED on most DevKits)
+//   Free for a later Pi link: 4, 13, 16, 17, 18, 19, 21, 22, 23
 // =============================================================================
 
-#include <Wire.h>
-#include <Adafruit_ADS1X15.h>
+#include "driver/pulse_cnt.h"
+#include <WiFi.h>
 
-#define FW_VERSION "10.1"
+#define FW_VERSION "11.0-single"
 
-Adafruit_ADS1115 ads;
+// --- Encoder pins (input-only GPIOs, no internal pull-ups) ---
+#define CART_ENC_A    39
+#define CART_ENC_B    36
+#define PEND_ENC_A    35
+#define PEND_ENC_B    34
 
 // --- Motor pins ---
 #define RPWM_PIN      25
@@ -99,22 +60,16 @@ Adafruit_ADS1115 ads;
 #define LEFT_LIMIT    32
 #define RIGHT_LIMIT   33
 
-// --- UART2 pins ---
-#define UART_TX       17
-#define UART_RX       16
+// --- Status LED: on while homed and running ---
+#define STATUS_LED     2
 
-// --- Pi GPIO trigger pins ---
-#define PI_START_PIN   4   // Pi GPIO 16, Pi Pin 36 — MQTT homing trigger
-#define PI_STOP_PIN    5   // Pi GPIO 20, Pi Pin 38 — MQTT stop trigger
+// --- Encoder sampling: one control step per sample (500 Hz) ---
+#define SAMPLE_US     2000
 
-// --- Homing complete signal to Pi ---
-#define HOMING_DONE_PIN 18  // Pi GPIO 13, Pi Pin 33 — HIGH when homing complete
+pcnt_unit_handle_t cart_pcnt = NULL;
+pcnt_unit_handle_t pend_pcnt = NULL;
 
 // --- Control constants ---
-#define NEUTRAL_VOLTAGE   2.5f
-#define DEADBAND          0.05f
-#define MAX_INPUT         2.5f
-#define MAX_PWM           47
 // Homing speed per direction. On the rig, right at 45 crawled ~50 counts per
 // breakaway kick, and left at 45 still stalled every ~200–1700 counts.
 // Tune each: lowest value that moves steadily with no "Stall" lines in the log.
@@ -149,25 +104,17 @@ Adafruit_ADS1115 ads;
 #define LIMIT_RELEASE_MS  50     // switch must read released this long (debounce)
 #define LIMIT_CONFIRM_MS  5      // run mode: switch must read pressed this long
 
-// --- Settle after centering (before telling ESP32 #1 to zero its counts) ---
+// --- Settle after centering (before zeroing the cart count) ---
 #define SETTLE_COUNTS     5      // moving less than this counts as stopped
 #define SETTLE_MS         200    // must stay stopped this long
 #define SETTLE_TIMEOUT_MS 2000
 
-// --- DAC signal guard (run mode) ---
-// A disconnected Pi/DAC reads ~0V on the ADS1115. Below SIGNAL_LOST_V for
-// SIGNAL_LOST_MS → treat as lost and stop until neutral (2.5V) is seen again.
-#define SIGNAL_LOST_V     0.1f
-#define SIGNAL_LOST_MS    200
-
 // =============================================================================
-// Standalone swing-up + balance (no Pi)
+// Swing-up + balance
 // =============================================================================
-// 1 = after homing this board swings the pendulum up and balances it itself.
-// 0 = after homing follow the Pi's DAC voltage (original behaviour).
-#define STANDALONE_SWINGUP 1
 // 1 = motor stays OFF after homing; prints angle and position so the signs
 // can be checked by hand. Set to 0 only after the check passes (docs/esp32.md).
+// Passed on the single-board build 2026-10-07 (PEND_SIGN -1 still correct).
 #define SIGN_CHECK         0
 
 // --- Geometry / scaling ---
@@ -337,24 +284,16 @@ float K_X_SWING       = 1.0f;     // m/s per m: pull back toward centre   [onlin
 // --- State ---
 bool systemEnabled  = false;
 bool homingComplete = false;
-bool signalArmed    = false;   // true once the DAC has been seen at neutral
-bool signalLow      = false;
-unsigned long signalLowSince = 0;
 
-// --- Cart and pendulum position received from ESP32 #1 via UART ---
-volatile int16_t cart_position = 0;
-int16_t track_total  = 0;
-int16_t track_center = 0;
-int     cartDir      = 1;       // +1 if driving right increases the count (set by homing)
-int32_t pend_position = 0;      // unwrapped pendulum count
-int16_t pend_raw      = 0;      // last 16-bit value received
-bool    pend_seen     = false;
-bool    newSample     = false;  // a full packet arrived since last control step
-
-// --- UART receive buffer ---
-#define UART_DATA_BYTES 6
-uint8_t uart_buf[UART_DATA_BYTES];
-int     uart_idx = UART_DATA_BYTES;   // wait for first header
+// --- Cart and pendulum position (encoder counts, read by readEncoders()) ---
+int32_t cart_position = 0;      // relative to cartZero (0 = centre after homing)
+int32_t cartZero      = 0;      // raw count at the centre, set by homing
+int32_t track_total   = 0;
+int32_t track_center  = 0;
+int     cartDir       = 1;      // +1 if driving right increases the count (set by homing)
+int32_t pend_position = 0;      // pendulum count (32-bit, keeps counting past +/-32767)
+bool    newSample     = false;  // a 2 ms sample was taken since the last control step
+unsigned long lastSampleTickUs = 0;
 
 enum Dir { DIR_LEFT, DIR_RIGHT };
 
@@ -366,10 +305,10 @@ BalState balState = BAL_HANG;
 // Declared up here (not next to stallCheck) because the Arduino IDE inserts
 // auto-generated function prototypes before the first function in the file.
 struct StallGuard {
-  int16_t       ref_pos;
+  int32_t       ref_pos;
   unsigned long ref_time;
   int           kicks;
-  int16_t       kick_pos;   // position right after the last kick
+  int32_t       kick_pos;   // position right after the last kick
 };
 
 const char* BAL_NAMES[] = { "HANG", "CHECK", "SWING", "BALANCE", "STEP TEST", "DONE", "BRAKE" };
@@ -446,12 +385,9 @@ void drive(Dir d, int pwm) {
 
 const char* dirName(Dir d) { return d == DIR_LEFT ? "left" : "right"; }
 
-void clearHomingDone() {
-  digitalWrite(HOMING_DONE_PIN, LOW);
-}
-
-void setHomingDone() {
-  digitalWrite(HOMING_DONE_PIN, HIGH);
+// Status LED: on while homed and running (replaces the homing-done line to the Pi)
+void readyLed(bool on) {
+  digitalWrite(STATUS_LED, on ? HIGH : LOW);
 }
 
 bool leftLimitHit()  { return digitalRead(LEFT_LIMIT)  == LOW; }
@@ -465,17 +401,17 @@ bool limitAhead(Dir d)  { return d == DIR_LEFT ? leftLimitHit()  : rightLimitHit
 bool limitBehind(Dir d) { return d == DIR_LEFT ? rightLimitHit() : leftLimitHit(); }
 
 // =============================================================================
-// Trigger helpers — unify button and Pi GPIO inputs
+// Trigger helpers — unify button and USB serial inputs
 // =============================================================================
 bool startTriggered() {
-  return (digitalRead(START_BTN) == LOW) || (digitalRead(PI_START_PIN) == HIGH) || serialStart;
+  return (digitalRead(START_BTN) == LOW) || serialStart;
 }
 
 bool stopTriggered() {
   // STOP_BTN is normally closed wired to GND:
   //   resting = closed = LOW = not stopped
   //   pressed = open   = HIGH (pulled up) = stopped
-  return (digitalRead(STOP_BTN) == HIGH) || (digitalRead(PI_STOP_PIN) == HIGH) || serialStop;
+  return (digitalRead(STOP_BTN) == HIGH) || serialStop;
 }
 
 // =============================================================================
@@ -488,18 +424,19 @@ bool stopTriggered() {
 //   params              -> param NAME VALUE MIN MAX DEFAULT UNIT | description
 //   set NAME VALUE      change a setting (only while idle, within its limits)
 //   defaults            restore every setting to its default (only while idle)
+//   io                  -> io cart N pend N left 0|1 right 0|1 start 0|1 stop 0|1
+//                          pins cartA cartB pendA pendB (encoder pin levels)
+//                          (counts, switch states and encoder levels, for bring-up)
 // =============================================================================
 bool isIdle() { return !systemEnabled && !homingActive; }
 
 const char* stateName() {
   if (homingActive)   return "HOMING";
   if (!systemEnabled) return "IDLE";
-#if STANDALONE_SWINGUP
   return BAL_NAMES[balState];
-#else
-  return "DAC";
-#endif
 }
+
+void readEncoders();   // defined with the encoder code below
 
 void captureParamDefaults() {
   for (int i = 0; i < N_PARAMS; i++) PARAMS[i].def = *PARAMS[i].value;
@@ -563,8 +500,18 @@ void handleCommand(char* line) {
     }
     *PARAMS[i].value = f;
     Serial.printf("ok %s %g\n", PARAMS[i].name, f);
+  } else if (!strcasecmp(cmd, "io")) {
+    readEncoders();
+    // Raw encoder pin levels too: if a level toggles while its count stays put,
+    // the fault is in the counting; if it never toggles, it's the wiring.
+    Serial.printf("io cart %ld pend %ld left %d right %d start %d stop %d"
+                  "  pins cartA %d cartB %d pendA %d pendB %d\n",
+                  (long)cart_position, (long)pend_position, leftLimitHit(), rightLimitHit(),
+                  digitalRead(START_BTN) == LOW, digitalRead(STOP_BTN) == HIGH,
+                  digitalRead(CART_ENC_A), digitalRead(CART_ENC_B),
+                  digitalRead(PEND_ENC_A), digitalRead(PEND_ENC_B));
   } else {
-    Serial.printf("err %s unknown command (home, stop, status, params, set, defaults)\n", cmd);
+    Serial.printf("err %s unknown command (home, stop, status, params, set, defaults, io)\n", cmd);
   }
 }
 
@@ -594,29 +541,67 @@ bool homingStopped() {
 }
 
 // =============================================================================
-// UART read — parse framed packets from ESP32 #1
-// Packet: 0xFF | m[6:0] | m[13:7] | m[15:14] | p[6:0] | p[13:7] | p[15:14]
-// Data bytes are 7-bit, so 0xFF only ever appears as the header.
+// Encoders — PCNT quadrature decoders (from esp32_encoder_v9 v9.2)
 // =============================================================================
-void readUART() {
-  while (Serial2.available()) {
-    uint8_t b = Serial2.read();
-    if (b == 0xFF) {
-      uart_idx = 0;
-    } else if (b & 0x80) {
-      uart_idx = UART_DATA_BYTES;   // corrupt byte — drop until next header
-    } else if (uart_idx < UART_DATA_BYTES) {
-      uart_buf[uart_idx++] = b;
-      if (uart_idx == UART_DATA_BYTES) {
-        cart_position = (int16_t)(uart_buf[0] | (uart_buf[1] << 7) | (uart_buf[2] << 14));
-        int16_t p = (int16_t)(uart_buf[3] | (uart_buf[4] << 7) | (uart_buf[5] << 14));
-        // int16 difference handles the 16-bit wrap; accumulate into 32 bits
-        if (pend_seen) pend_position += (int16_t)(p - pend_raw);
-        else           { pend_position = p; pend_seen = true; }
-        pend_raw  = p;
-        newSample = true;
-      }
-    }
+// accum_count + watch points on both limits: the driver adds the limit to a
+// software total each time the hardware counter overflows and resets, so
+// pcnt_unit_get_count() keeps counting past +/-32767.
+bool setupPcnt(pcnt_unit_handle_t* unit, int pin_a, int pin_b) {
+  pcnt_unit_config_t unit_config = {
+    .low_limit  = -32768,
+    .high_limit =  32767,
+  };
+  unit_config.flags.accum_count = 1;
+  if (pcnt_new_unit(&unit_config, unit) != ESP_OK) return false;
+  if (pcnt_unit_add_watch_point(*unit, unit_config.low_limit)  != ESP_OK) return false;
+  if (pcnt_unit_add_watch_point(*unit, unit_config.high_limit) != ESP_OK) return false;
+
+  pcnt_glitch_filter_config_t filter_config = { .max_glitch_ns = 5000 };
+  if (pcnt_unit_set_glitch_filter(*unit, &filter_config) != ESP_OK) return false;
+
+  pcnt_chan_config_t chan_a_config = {
+    .edge_gpio_num  = pin_a,
+    .level_gpio_num = pin_b,
+  };
+  pcnt_channel_handle_t pcnt_chan_a = NULL;
+  if (pcnt_new_channel(*unit, &chan_a_config, &pcnt_chan_a) != ESP_OK) return false;
+  pcnt_channel_set_edge_action(pcnt_chan_a,
+      PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
+  pcnt_channel_set_level_action(pcnt_chan_a,
+      PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
+
+  pcnt_chan_config_t chan_b_config = {
+    .edge_gpio_num  = pin_b,
+    .level_gpio_num = pin_a,
+  };
+  pcnt_channel_handle_t pcnt_chan_b = NULL;
+  if (pcnt_new_channel(*unit, &chan_b_config, &pcnt_chan_b) != ESP_OK) return false;
+  pcnt_channel_set_edge_action(pcnt_chan_b,
+      PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
+  pcnt_channel_set_level_action(pcnt_chan_b,
+      PCNT_CHANNEL_LEVEL_ACTION_INVERSE, PCNT_CHANNEL_LEVEL_ACTION_KEEP);
+
+  if (pcnt_unit_enable(*unit)      != ESP_OK) return false;
+  if (pcnt_unit_clear_count(*unit) != ESP_OK) return false;
+  if (pcnt_unit_start(*unit)       != ESP_OK) return false;
+  return true;
+}
+
+// Read both counters (cheap — call as often as you like). Every SAMPLE_US it
+// also flags a new sample, which runs one control step (500 Hz, the rate the
+// UART packets from ESP32 #1 used to arrive at).
+void readEncoders() {
+  int c = 0, p = 0;
+  pcnt_unit_get_count(cart_pcnt, &c);
+  pcnt_unit_get_count(pend_pcnt, &p);
+  cart_position = (int32_t)c - cartZero;
+  pend_position = (int32_t)p;
+
+  unsigned long now = micros();
+  if (now - lastSampleTickUs >= SAMPLE_US) {
+    lastSampleTickUs += SAMPLE_US;
+    if (now - lastSampleTickUs >= SAMPLE_US) lastSampleTickUs = now;   // fell behind: resync
+    newSample = true;
   }
 }
 
@@ -632,11 +617,11 @@ void stallReset(StallGuard &g) {
 
 // Drive hard until the cart starts moving, then resume at resume_pwm
 void kick(Dir d, int resume_pwm) {
-  int16_t start = cart_position;
+  int32_t start = cart_position;
   unsigned long t0 = millis();
   drive(d, BREAKAWAY_PWM);
   while (millis() - t0 < BREAKAWAY_MS) {
-    readUART();
+    readEncoders();
     pollSerial();
     if (stopTriggered()) break;   // the caller's loop aborts on the same check
     if (abs(cart_position - start) >= KICK_MOVE_COUNTS) break;
@@ -668,8 +653,8 @@ bool stallCheck(StallGuard &g, Dir d, int pwm) {
   }
 
   g.kicks++;
-  Serial.printf("Stall driving %s at PWM %d (pos %d) — breakaway kick %d/%d\n",
-                dirName(d), pwm, cart_position, g.kicks, MAX_KICKS);
+  Serial.printf("Stall driving %s at PWM %d (pos %ld) — breakaway kick %d/%d\n",
+                dirName(d), pwm, (long)cart_position, g.kicks, MAX_KICKS);
   kick(d, pwm);
   // Movement produced by the kick itself does not count as progress
   g.ref_pos  = cart_position;
@@ -685,7 +670,7 @@ bool stallCheck(StallGuard &g, Dir d, int pwm) {
 //   2. Drive right to right limit (ignore left limit until it releases)
 //   3. Calculate center from total track counts
 //   4. Drive to center (proportional speed, ignore limits until released)
-//   5. Send 0xAA to ESP32 #1 on success
+//   5. Zero the cart count where the cart came to rest
 // Returns true on success, false on any error (motor stopped).
 // =============================================================================
 
@@ -701,7 +686,7 @@ bool homeToLimit(Dir d) {
 
   drive(d, homingPwm(d));
   while (!limitAhead(d)) {
-    readUART();
+    readEncoders();
     if (homingStopped()) return false;
 
     if (millis() - t0 > PHASE_TIMEOUT_MS) {
@@ -729,7 +714,7 @@ bool homeToLimit(Dir d) {
   }
   stopMotor();
   delay(200);
-  readUART();
+  readEncoders();
   return true;
 }
 
@@ -745,7 +730,7 @@ bool approachCenter() {
   unsigned long limitsClearSince = millis();
 
   while (true) {
-    readUART();
+    readEncoders();
     if (homingStopped()) return false;
 
     if (millis() - t0 > PHASE_TIMEOUT_MS) {
@@ -804,11 +789,11 @@ bool approachCenter() {
 
 // Wait for the cart to stop coasting after centering.
 void waitForSettle() {
-  int16_t ref = cart_position;
+  int32_t ref = cart_position;
   unsigned long refTime = millis();
   unsigned long t0 = millis();
   while (millis() - t0 < SETTLE_TIMEOUT_MS) {
-    readUART();
+    readEncoders();
     pollSerial();
     if (stopTriggered()) return;   // centerCart() aborts on the same check
     if (abs(cart_position - ref) > SETTLE_COUNTS) {
@@ -819,8 +804,8 @@ void waitForSettle() {
     }
     delay(5);
   }
-  Serial.printf("Settled at count %d (center %d, off by %d)\n",
-                cart_position, track_center, cart_position - track_center);
+  Serial.printf("Settled at count %ld (center %ld, off by %ld)\n",
+                (long)cart_position, (long)track_center, (long)(cart_position - track_center));
 }
 
 // Approach center, let the cart stop, and re-approach if it coasted too far.
@@ -837,18 +822,18 @@ bool centerCart() {
                     off, attempt + 1, CENTER_ATTEMPTS);
     }
   }
-  Serial.printf("WARNING: still %d counts from center after %d attempts — accepting\n",
-                cart_position - track_center, CENTER_ATTEMPTS);
+  Serial.printf("WARNING: still %ld counts from center after %d attempts — accepting\n",
+                (long)(cart_position - track_center), CENTER_ATTEMPTS);
   return true;
 }
 
 bool doHoming() {
   if (!homeToLimit(DIR_LEFT)) return false;
-  int16_t left_pos = cart_position;
+  int32_t left_pos = cart_position;
   Serial.print("Left limit at count: "); Serial.println(left_pos);
 
   if (!homeToLimit(DIR_RIGHT)) return false;
-  int16_t right_pos = cart_position;
+  int32_t right_pos = cart_position;
   Serial.print("Right limit at count: "); Serial.println(right_pos);
 
   track_total  = abs(right_pos - left_pos);
@@ -867,11 +852,12 @@ bool doHoming() {
 
   Serial.println("Homing complete!");
 
-  // Notify ESP32 #1 — it will set FLAG_HOMING_COMPLETE in SPI status byte to Pi
-  // and zero both counts. 4 bytes, not 1: noise on the line made single 0xAA
-  // bytes and zeroed the counts mid-run.
-  static const uint8_t HOMING_MAGIC[4] = { 0xAA, 0x55, 0xA5, 0x5A };
-  Serial2.write(HOMING_MAGIC, sizeof(HOMING_MAGIC));
+  // Count 0 = where the cart rests now (within CENTER_ACCEPT of the centre).
+  // Done in software: the two-board build did this with a UART message that
+  // motor noise could fake.
+  readEncoders();
+  cartZero += cart_position;
+  readEncoders();
 
   return true;
 }
@@ -888,9 +874,8 @@ void runHoming() {
 }
 
 void runHomingSteps() {
-  clearHomingDone();  // clear while homing in progress
+  readyLed(false);
   systemEnabled = false;
-  signalArmed   = false;
 
   homingComplete = doHoming();
   if (!homingComplete) {
@@ -902,7 +887,7 @@ void runHomingSteps() {
   // Cart is centered, so no limit should be pressed. Give switches a moment
   // to settle; if one still reads pressed, something is wrong.
   unsigned long t0 = millis();
-  while (anyLimitHit() && millis() - t0 < 2000) { readUART(); pollSerial(); delay(10); }
+  while (anyLimitHit() && millis() - t0 < 2000) { readEncoders(); pollSerial(); delay(10); }
   if (homingStopped()) { homingComplete = false; return; }
   if (anyLimitHit()) {
     homingComplete = false;
@@ -911,13 +896,9 @@ void runHomingSteps() {
   }
   delay(300);  // additional debounce settle time
 
-  setHomingDone();  // signal Pi that homing is complete
+  readyLed(true);
   systemEnabled = true;
-#if STANDALONE_SWINGUP
   standaloneStart();
-#else
-  Serial.println("System enabled. Waiting for 2.5V neutral on DAC before driving...");
-#endif
 }
 
 // =============================================================================
@@ -936,7 +917,7 @@ float         balVRef = 0;          // balance: integrated speed command
 float         balTrim = 0;          // balance: learned upright offset (rad)
 unsigned long balStartMs = 0;       // when the current balance began
 float         kaTh = 0, kaThd = 0, kaX = 0, kaV = 0;   // balance gains (balanceGains())
-int16_t       lastCart = 0;
+int32_t       lastCart = 0;
 int32_t       lastPend = 0;
 unsigned long lastSampleUs = 0;
 bool          haveSample = false;
@@ -981,9 +962,7 @@ void speedDrive(float vRef) {
 
 void standaloneStart() {
   stopMotor();
-  // Drain packets buffered during homing's delays, so the window starts from
-  // the current count and not from before ESP32 #1 zeroed it on 0xAA
-  readUART();
+  readEncoders();
   uOut       = 0;
   vRefOut    = 0;
   haveSample = false;
@@ -997,7 +976,9 @@ void standaloneStart() {
   pumpBlocked = false;
   energyEnd  = -2;
   swingDir   = 0;
-  balTrim    = 0;
+  // balTrim is NOT reset here: the upright offset is the same after a re-home
+  // (5.5-6.4 deg on every run of 2026-10-02), and starting from 0 after an
+  // automatic re-home parked the balanced cart at -384 mm, into the soft limit.
   balanceGains();
   printRunParams();
   Serial.println("Standalone: waiting for the pendulum to hang still...");
@@ -1032,7 +1013,7 @@ void updateState() {
   lastSampleUs = now;
 
   theta  = wrapPi(PEND_SIGN * (pend_position - pendDownRef) * k - PI) - PEND_TRIM_DEG * DEG_TO_RAD;
-  xPos   = cartDir * cart_position * CART_M_PER_COUNT;   // ESP32 #1 zeroed at centre
+  xPos   = cartDir * cart_position * CART_M_PER_COUNT;   // zeroed at centre by homing
   energy = 0.5f * sq(thetaDot / PEND_OMEGA0) + cosf(theta) - 1.0f;
 }
 
@@ -1184,7 +1165,7 @@ void standaloneStep() {
       Serial.printf("%s: cart at %.0f mm, %.2f m/s — braking, then %s\n",
                     fault, xPos * 1000.0f, xDot,
                     brakeRehome ? "re-homing." : "stopping. Press START to re-home.");
-      clearHomingDone();
+      readyLed(false);
       brakeStart = millis();
       enterState(BAL_BRAKE);
     }
@@ -1288,12 +1269,11 @@ void setup() {
 
   Serial.begin(115200);
   Serial.println();
-  Serial.println("=== ESP32 #2 Motor Control v" FW_VERSION " ===");
+  Serial.println("=== ESP32 Single-Board Pendulum Controller v" FW_VERSION " ===");
   captureParamDefaults();   // the starting values become the "defaults"
 
-  // --- Homing done pin — drive LOW at boot ---
-  pinMode(HOMING_DONE_PIN, OUTPUT);
-  clearHomingDone();
+  pinMode(STATUS_LED, OUTPUT);
+  readyLed(false);
 
   // Now attach LEDC PWM (25kHz, 8-bit, above audible range)
   ledcAttach(RPWM_PIN, 25000, 8);
@@ -1301,53 +1281,43 @@ void setup() {
   stopMotor();   // redundant but explicit
 
   // --- GPIO setup ---
+  // (Buttons and limits also have external 10k pull-ups + 100 nF on the
+  // breadboard; the internal pull-ups are a backup.)
   pinMode(START_BTN,    INPUT_PULLUP);
   pinMode(STOP_BTN,     INPUT_PULLUP);
   pinMode(LEFT_LIMIT,   INPUT_PULLUP);
   pinMode(RIGHT_LIMIT,  INPUT_PULLUP);
-  pinMode(PI_START_PIN, INPUT_PULLDOWN);  // Pi drives HIGH to trigger
-  pinMode(PI_STOP_PIN,  INPUT_PULLDOWN);  // Pi drives HIGH to trigger
 
-  // --- UART2 ---
-  // 7-byte packets every 2ms = 3.5 KB/s. The default 256-byte buffer overflows
-  // during homing's blocking delays and would leave a stale cart position.
-  Serial2.setRxBufferSize(8192);
-  Serial2.begin(115200, SERIAL_8N1, UART_RX, UART_TX);
+  WiFi.mode(WIFI_OFF);
 
-  // --- I2C + ADS1115 ---
-  Wire.begin(21, 22);
-  if (ads.begin()) {
-    ads.setGain(GAIN_ONE);  // ±4.096V range — covers 0–4.096V of the DAC output
-  } else {
-#if STANDALONE_SWINGUP
-    // Only the DAC-follow mode reads the ADS1115
-    Serial.println("WARNING: ADS1115 not found — fine in standalone mode.");
-#else
-    Serial.println("ERROR: ADS1115 not found! Check wiring. Halting.");
-    while (1) stopMotor();
-#endif
+  // --- Encoders ---
+  if (!setupPcnt(&cart_pcnt, CART_ENC_A, CART_ENC_B) ||
+      !setupPcnt(&pend_pcnt, PEND_ENC_A, PEND_ENC_B)) {
+    Serial.println("ERROR: encoder (PCNT) setup failed. Halting with the motor off.");
+    while (1) { stopMotor(); delay(100); }
   }
+  lastSampleTickUs = micros();
+  readEncoders();
 
-  Serial.println("Ready. Waiting for START (button or Pi GPIO 4) to home...");
+  Serial.println("Ready. Waiting for START (button or \"home\") to home...");
 
-  // --- Wait for start trigger (button OR Pi GPIO) ---
+  // --- Wait for start trigger (button or serial) ---
   while (!startTriggered()) {
-    readUART();
+    readEncoders();
     pollSerial();
     delay(10);
   }
-  Serial.println(serialStart ? "START from serial" :
-                 digitalRead(PI_START_PIN) == HIGH ? "START from Pi" : "START from button");
+  Serial.println(serialStart ? "START from serial" : "START from button");
   delay(200);  // debounce
 
   runHoming();
 }
 
 // =============================================================================
-// Loop — normal motor control from ADS1115 DAC voltage
+// Loop — safety checks, then one swing-up/balance step per 2 ms sample
 // =============================================================================
 void loop() {
-  readUART();
+  readEncoders();
   pollSerial();
 
   // --- Hardware safety: limit switches stop the motor ---
@@ -1363,15 +1333,16 @@ void loop() {
   }
   if (limitSeen && millis() - limitSince >= LIMIT_CONFIRM_MS && systemEnabled) {
     stopMotor();
+    readyLed(false);
     systemEnabled = false;
     Serial.printf("LIMIT HIT (%s) — motor stopped. Press START to re-home.\n",
                   leftLimitHit() ? "left" : "right");
   }
 
-  // --- Stop trigger (button or Pi GPIO) ---
+  // --- Stop trigger (button or serial) ---
   if (stopTriggered() && systemEnabled) {
     stopMotor();
-    clearHomingDone();  // clear signal to Pi
+    readyLed(false);
     systemEnabled = false;
     serialStop = false;
     Serial.println("STOP triggered — motor stopped. Press START to re-home.");
@@ -1392,61 +1363,6 @@ void loop() {
     return;
   }
 
-#if STANDALONE_SWINGUP
-  // --- Standalone: swing-up + balance, one control step per UART packet ---
+  // --- Swing-up + balance, one control step per 2 ms sample ---
   standaloneStep();
-  return;
-#endif
-
-  // --- Normal operation: read DAC voltage and drive motor ---
-  int16_t raw       = ads.readADC_SingleEnded(0);
-  float   voltage   = ads.computeVolts(raw);
-  float   deviation = voltage - NEUTRAL_VOLTAGE;
-
-  // --- DAC signal guard ---
-  if (voltage < SIGNAL_LOST_V) {
-    if (!signalLow) {
-      signalLow = true;
-      signalLowSince = millis();
-    } else if (signalArmed && millis() - signalLowSince >= SIGNAL_LOST_MS) {
-      signalArmed = false;
-      Serial.println("DAC signal lost (~0V) — motor stopped until 2.5V neutral is seen.");
-    }
-  } else {
-    signalLow = false;
-  }
-
-  if (!signalArmed) {
-    stopMotor();
-    if (fabsf(deviation) < DEADBAND) {
-      signalArmed = true;
-      Serial.println("DAC at neutral — following DAC.");
-    }
-    delay(10);
-    return;
-  }
-
-  if (fabsf(deviation) < DEADBAND) {
-    stopMotor();
-  } else if (deviation > 0) {
-    int pwm = constrain(
-      map((int)(deviation * 1000),
-          (int)(DEADBAND * 1000),
-          (int)(MAX_INPUT * 1000),
-          0, MAX_PWM),
-      0, MAX_PWM
-    );
-    driveRight(pwm);
-  } else {
-    int pwm = constrain(
-      map((int)(fabsf(deviation) * 1000),
-          (int)(DEADBAND * 1000),
-          (int)(MAX_INPUT * 1000),
-          0, MAX_PWM),
-      0, MAX_PWM
-    );
-    driveLeft(pwm);
-  }
-
-  delay(10);
 }
