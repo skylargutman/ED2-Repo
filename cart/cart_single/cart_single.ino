@@ -31,7 +31,8 @@
 //     replace the SIGN_CHECK / STEP_TEST compile switches.
 //   - USB serial at 921600 baud. Each run prints "run start NAME K=V ...",
 //     one "D t_ms x theta u ref" line per 2 ms step, then "run end REASON".
-//   - PEND_TRIM_DEG 5.5 (measured upright offset, 2026-10-07).
+//   - PEND_TRIM_DEG stays 0: a 5.5 preset broke the swing-up (2026-10-08 log);
+//     the balance self-trim handles the upright offset.
 //
 // Pin Assignments:
 //   GPIO 39 : Cart encoder A       (input-only; 4.7k pull-up to 5V + 10k/22k divider)
@@ -140,11 +141,14 @@ pcnt_unit_handle_t pend_pcnt = NULL;
 // accelerates, a hanging bob must swing the opposite way, and with +1 it
 // read as swinging the same way every time (and in the first CHECK log).
 #define PEND_SIGN           -1
-// Upright offset (degrees). 2026-10-07, single-board build: the balance
-// self-trim settled at 5.52 deg with the cart parked at centre, and a whole
-// run lost only 7 pendulum counts (1.3 deg), so the offset is fixed, not lost
-// counts. Two-board runs on 2026-10-02 settled at 5.5-6.4 deg.
-#define PEND_TRIM_DEG       5.5f
+// Upright offset (degrees), subtracted from the angle EVERYWHERE, including at
+// the bottom. Keep it 0: on 2026-10-08 a 5.5 preset made a hanging pendulum read
+// 174.5 deg, so the swing-up saw the bob 5.5 deg to one side (more than
+// SWING_HYST) and took 22 s instead of ~6. The upright offset is also not
+// constant (it moves with counts lost in the ~124 deg encoder dead zone: 7 counts
+// on 2026-10-07, ~34 on 2026-10-08), so the balance self-trim (balTrim, kept
+// across re-homes) handles it instead.
+#define PEND_TRIM_DEG       0.0f
 #define CART_M_PER_COUNT    (0.156f / 2048.0f)   // Feedback model "Counts->Meters"
 // Small-swing natural frequency, rad/s = 2*pi / period. Time 10 small swings.
 // Measured: 10 swings in 11.20 s -> period 1.12 s.
