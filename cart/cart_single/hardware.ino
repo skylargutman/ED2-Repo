@@ -410,5 +410,5 @@ void runHomingSteps() {
 
   readyLed(true);
   systemEnabled = true;
-  standaloneStart();
+  runStart();
 }

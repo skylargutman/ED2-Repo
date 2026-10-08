@@ -30,7 +30,7 @@ import time
 import serial
 import serial.tools.list_ports
 
-BAUD = 115200
+BAUD = 921600
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 USB_HINTS = ("CP210", "CH340", "CH910", "USB", "UART")
 

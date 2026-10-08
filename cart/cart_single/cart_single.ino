@@ -1,6 +1,6 @@
 // =============================================================================
 // Single-board cart + pendulum controller (one ESP32)
-// Version: 11.0
+// Version: 11.1
 // Description: One ESP32 reads both quadrature encoders (PCNT hardware),
 //              drives the BTS7960 IBT-2 H-bridge, homes the cart, then swings
 //              the pendulum up and balances it. Replaces the two-board setup
@@ -22,6 +22,17 @@
 //     after an automatic re-home parked the cart at -384 mm (soft limit).
 //   - New serial command "io": counts and switch states, for bring-up.
 //
+// Changes in 11.1 (experiments framework; design in
+// docs/superpowers/specs/2026-10-07-esp32-experiments-design.md):
+//   - Code split into tabs: hardware.ino, protocol.ino, control.ino,
+//     exp_*.ino (one per experiment), zz_registry.ino (experiment list).
+//   - Experiments chosen at runtime: "exp list", "exp select NAME", "run".
+//     SwingBal (swing-up + balance), SignCheck and StepTest; the last two
+//     replace the SIGN_CHECK / STEP_TEST compile switches.
+//   - USB serial at 921600 baud. Each run prints "run start NAME K=V ...",
+//     one "D t_ms x theta u ref" line per 2 ms step, then "run end REASON".
+//   - PEND_TRIM_DEG 5.5 (measured upright offset, 2026-10-07).
+//
 // Pin Assignments:
 //   GPIO 39 : Cart encoder A       (input-only; 4.7k pull-up to 5V + 10k/22k divider)
 //   GPIO 36 : Cart encoder B       (same)
@@ -40,7 +51,7 @@
 #include "driver/pulse_cnt.h"
 #include <WiFi.h>
 
-#define FW_VERSION "11.0-single"
+#define FW_VERSION "11.1-single"
 
 // --- Encoder pins (input-only GPIOs, no internal pull-ups) ---
 #define CART_ENC_A    39
@@ -112,10 +123,9 @@ pcnt_unit_handle_t pend_pcnt = NULL;
 // =============================================================================
 // Swing-up + balance
 // =============================================================================
-// 1 = motor stays OFF after homing; prints angle and position so the signs
-// can be checked by hand. Set to 0 only after the check passes (docs/esp32.md).
+// Sign check = the "SignCheck" experiment: motor off after homing, angle and
+// position printed so the signs can be checked by hand (docs/esp32.md).
 // Passed on the single-board build 2026-10-07 (PEND_SIGN -1 still correct).
-#define SIGN_CHECK         0
 
 // --- Geometry / scaling ---
 // Pendulum counts per revolution. Measured with the logger (cart/serial_log.py),
@@ -130,9 +140,11 @@ pcnt_unit_handle_t pend_pcnt = NULL;
 // accelerates, a hanging bob must swing the opposite way, and with +1 it
 // read as swinging the same way every time (and in the first CHECK log).
 #define PEND_SIGN           -1
-// Upright offset (degrees). If the balanced cart creeps steadily one way,
-// nudge this by 0.2-0.5 deg until it holds still.
-#define PEND_TRIM_DEG       0.0f
+// Upright offset (degrees). 2026-10-07, single-board build: the balance
+// self-trim settled at 5.52 deg with the cart parked at centre, and a whole
+// run lost only 7 pendulum counts (1.3 deg), so the offset is fixed, not lost
+// counts. Two-board runs on 2026-10-02 settled at 5.5-6.4 deg.
+#define PEND_TRIM_DEG       5.5f
 #define CART_M_PER_COUNT    (0.156f / 2048.0f)   // Feedback model "Counts->Meters"
 // Small-swing natural frequency, rad/s = 2*pi / period. Time 10 small swings.
 // Measured: 10 swings in 11.20 s -> period 1.12 s.
@@ -145,6 +157,8 @@ pcnt_unit_handle_t pend_pcnt = NULL;
 #define RUN_MIN_PWM         30
 #define RUN_RIGHT_EXTRA_PWM 10       // right needs more drive (homing 60 vs 50)
 #define U_EPS               0.02f
+// Motor command in volts, Feedback convention: +-2.5 V = full scale (u = 1)
+#define U_FULL_SCALE_V      2.5f
 
 // --- Balance (on the speed loop) ---
 // Commands a cart acceleration a = KA_TH*th + KA_THD*th' + KA_X*x + KA_V*v
@@ -257,13 +271,12 @@ float K_X_SWING       = 1.0f;     // m/s per m: pull back toward centre   [onlin
 #define AUTO_REHOME_MAX     3
 #define AUTO_REHOME_GOOD_MS 5000
 
-// --- Speed loop step test ---
-// 1 = after HANG, instead of swinging up: +STEP_V for STEP_MS, -STEP_V for
-// STEP_MS, STEP_CYCLES times, then stop. Prints speed every STEP_PRINT_MS.
+// --- Speed loop step test (the "StepTest" experiment) ---
+// +STEP_V for STEP_MS, -STEP_V for STEP_MS, STEP_CYCLES times, then the run
+// ends. Prints speed every STEP_PRINT_MS.
 // Also checks the pendulum model: with the pendulum hanging, each cart
 // acceleration a should kick it at th'' = +3.21*a (th moving from 180 toward
 // -179, -178... when accelerating toward +x).
-#define STEP_TEST           0
 #define STEP_V              0.3f     // m/s (travel ~STEP_V * STEP_MS = 0.18 m)
 // (the pendulum must be hanging still for the model check)
 #define STEP_MS             600
@@ -298,10 +311,30 @@ void readEncoders();   // defined with the encoder code below
 
 enum Dir { DIR_LEFT, DIR_RIGHT };
 
-// Standalone controller state (declared up here for the Arduino prototype
-// generator, like StallGuard below)
-enum BalState { BAL_HANG, BAL_CHECK, BAL_SWING, BAL_BALANCE, BAL_STEP, BAL_DONE, BAL_BRAKE };
-BalState balState = BAL_HANG;
+// --- Experiments (types declared up here for the Arduino prototype generator) ---
+// One experiment = what runs after homing + the hanging reference. control.ino
+// owns the run (D lines, safety, run end); the experiment only computes the
+// motor command each 2 ms step. Instances live in exp_*.ino, the list in
+// zz_registry.ino.
+struct Experiment {
+  const char* name;          // command / file name, no spaces ("SwingBal")
+  const char* title;         // shown in the console
+  bool        autoRehome;    // re-home and run again after a soft-limit stop
+  bool        safety;        // soft limit + overspeed checks (off for motor-off checks)
+  void        (*start)();    // once, when the run starts
+  bool        (*step)(float dt);   // every 2 ms step; false = finished
+  const char* (*state)();    // state name for "status" ("SWING", "BALANCE", ...)
+};
+#define MAX_EXPS 16
+Experiment* EXPS[MAX_EXPS];
+int         N_EXPS = 0;
+Experiment* curExp = NULL;   // selected experiment (EXPS[0] at boot)
+float       expRef = NAN;    // current setpoint for the D line, NAN = none
+
+enum RunPhase { PH_IDLE, PH_HANG, PH_EXP, PH_BRAKE };
+RunPhase      phase      = PH_IDLE;
+bool          runActive  = false;    // "run start" printed, "run end" not yet
+unsigned long runStartMs = 0;
 
 // Declared up here (not next to stallCheck) because the Arduino IDE inserts
 // auto-generated function prototypes before the first function in the file.
@@ -312,7 +345,6 @@ struct StallGuard {
   int32_t       kick_pos;   // position right after the last kick
 };
 
-const char* BAL_NAMES[] = { "HANG", "CHECK", "SWING", "BALANCE", "STEP TEST", "DONE", "BRAKE" };
 
 // =============================================================================
 // Online parameters: changeable over USB serial (bridge / website) while idle.
@@ -323,6 +355,7 @@ const char* BAL_NAMES[] = { "HANG", "CHECK", "SWING", "BALANCE", "STEP TEST", "D
 // in this table.
 // =============================================================================
 struct Param {
+  const char* exp;      // experiment that uses it; NULL = shared by all
   const char* name;
   float*      value;
   float       lo, hi;
@@ -331,27 +364,28 @@ struct Param {
   float       def;      // filled in by captureParamDefaults()
 };
 Param PARAMS[] = {
-  // Balance
-  { "BAL_MODE",        &BAL_MODE,        0.0f,   1.0f,  "-",       "0 = gains from BAL_POLE, 1 = manual gains" },
-  { "BAL_POLE",        &BAL_POLE,        3.0f,   7.0f,  "rad/s",   "balance stiffness (all four gains computed from it)" },
-  { "BAL_K_TH",        &BAL_K_TH,        0.0f, 200.0f,  "m/s2/rad",  "manual gain: pendulum angle" },
-  { "BAL_K_THD",       &BAL_K_THD,       0.0f,  40.0f,  "m/s2/(rad/s)", "manual gain: pendulum angular speed" },
-  { "BAL_K_X",         &BAL_K_X,       -50.0f, 100.0f,  "m/s2/m",  "manual gain: cart position" },
-  { "BAL_K_V",         &BAL_K_V,       -50.0f,  80.0f,  "m/s2/(m/s)", "manual gain: cart speed" },
-  { "CATCH_ANGLE_DEG", &CATCH_ANGLE_DEG, 5.0f,  20.0f,  "deg",     "start balancing inside this angle from upright" },
-  { "CATCH_RATE",      &CATCH_RATE,      1.0f,   3.0f,  "rad/s",   "...and only if turning slower than this" },
-  { "DROP_ANGLE_DEG",  &DROP_ANGLE_DEG, 20.0f,  45.0f,  "deg",     "give up balancing past this angle" },
-  // Swing-up
-  { "SWING_V",         &SWING_V,         0.1f,   0.6f,  "m/s",     "swing-up cart speed" },
-  { "SWING_E_TARGET",  &SWING_E_TARGET, -0.1f,   0.2f,  "-",       "energy target (0 = just reaches upright)" },
-  { "SWING_E_SLOW",    &SWING_E_SLOW,    0.2f,   1.5f,  "-",       "how gradually the push eases off near the top" },
-  { "SWING_PHASE_DEG", &SWING_PHASE_DEG, 0.0f,  90.0f,  "deg",     "push timing lead (0 = at the bottom, 90 = at swing ends)" },
-  { "K_X_SWING",       &K_X_SWING,       0.0f,   3.0f,  "1/s",     "pull back toward centre while swinging" },
-  // Cart speed loop
-  { "KV_P",            &KV_P,            0.5f,   3.0f,  "1/(m/s)", "speed loop gain" },
-  { "V_FF",            &V_FF,            0.1f,   0.5f,  "1/(m/s)", "speed loop feed-forward" },
-  { "V_MAX",           &V_MAX,           0.2f,   1.0f,  "m/s",     "top cart speed" },
+  // SwingBal: balance
+  { "SwingBal", "BAL_MODE",        &BAL_MODE,        0.0f,   1.0f,  "-",       "0 = gains from BAL_POLE, 1 = manual gains" },
+  { "SwingBal", "BAL_POLE",        &BAL_POLE,        3.0f,   7.0f,  "rad/s",   "balance stiffness (all four gains computed from it)" },
+  { "SwingBal", "BAL_K_TH",        &BAL_K_TH,        0.0f, 200.0f,  "m/s2/rad",  "manual gain: pendulum angle" },
+  { "SwingBal", "BAL_K_THD",       &BAL_K_THD,       0.0f,  40.0f,  "m/s2/(rad/s)", "manual gain: pendulum angular speed" },
+  { "SwingBal", "BAL_K_X",         &BAL_K_X,       -50.0f, 100.0f,  "m/s2/m",  "manual gain: cart position" },
+  { "SwingBal", "BAL_K_V",         &BAL_K_V,       -50.0f,  80.0f,  "m/s2/(m/s)", "manual gain: cart speed" },
+  { "SwingBal", "CATCH_ANGLE_DEG", &CATCH_ANGLE_DEG, 5.0f,  20.0f,  "deg",     "start balancing inside this angle from upright" },
+  { "SwingBal", "CATCH_RATE",      &CATCH_RATE,      1.0f,   3.0f,  "rad/s",   "...and only if turning slower than this" },
+  { "SwingBal", "DROP_ANGLE_DEG",  &DROP_ANGLE_DEG, 20.0f,  45.0f,  "deg",     "give up balancing past this angle" },
+  // SwingBal: swing-up
+  { "SwingBal", "SWING_V",         &SWING_V,         0.1f,   0.6f,  "m/s",     "swing-up cart speed" },
+  { "SwingBal", "SWING_E_TARGET",  &SWING_E_TARGET, -0.1f,   0.2f,  "-",       "energy target (0 = just reaches upright)" },
+  { "SwingBal", "SWING_E_SLOW",    &SWING_E_SLOW,    0.2f,   1.5f,  "-",       "how gradually the push eases off near the top" },
+  { "SwingBal", "SWING_PHASE_DEG", &SWING_PHASE_DEG, 0.0f,  90.0f,  "deg",     "push timing lead (0 = at the bottom, 90 = at swing ends)" },
+  { "SwingBal", "K_X_SWING",       &K_X_SWING,       0.0f,   3.0f,  "1/s",     "pull back toward centre while swinging" },
+  // Shared: cart speed loop (also used by the brake and by StepTest)
+  { NULL,       "KV_P",            &KV_P,            0.5f,   3.0f,  "1/(m/s)", "speed loop gain" },
+  { NULL,       "V_FF",            &V_FF,            0.1f,   0.5f,  "1/(m/s)", "speed loop feed-forward" },
+  { NULL,       "V_MAX",           &V_MAX,           0.2f,   1.0f,  "m/s",     "top cart speed" },
 };
+
 const int N_PARAMS = sizeof(PARAMS) / sizeof(PARAMS[0]);
 
 // --- USB serial commands ---
@@ -406,9 +440,13 @@ void setup() {
   digitalWrite(RPWM_PIN, LOW);
   digitalWrite(LPWM_PIN, LOW);
 
-  Serial.begin(115200);
+  // D lines run at 500 Hz (~20 KB/s): a TX buffer keeps printing from
+  // blocking the control step, and 921600 baud leaves plenty of headroom
+  Serial.setTxBufferSize(4096);
+  Serial.begin(921600);
   Serial.println();
   Serial.println("=== ESP32 Single-Board Pendulum Controller v" FW_VERSION " ===");
+  registerExperiments();    // fills EXPS[], selects EXPS[0]
   captureParamDefaults();   // the starting values become the "defaults"
 
   pinMode(STATUS_LED, OUTPUT);
@@ -453,7 +491,7 @@ void setup() {
 }
 
 // =============================================================================
-// Loop — safety checks, then one swing-up/balance step per 2 ms sample
+// Loop — hardware safety, then one experiment step per 2 ms sample
 // =============================================================================
 void loop() {
   readEncoders();
@@ -472,19 +510,17 @@ void loop() {
   }
   if (limitSeen && millis() - limitSince >= LIMIT_CONFIRM_MS && systemEnabled) {
     stopMotor();
-    readyLed(false);
-    systemEnabled = false;
     Serial.printf("LIMIT HIT (%s) — motor stopped. Press START to re-home.\n",
                   leftLimitHit() ? "left" : "right");
+    endRun("limit-switch");
   }
 
   // --- Stop trigger (button or serial) ---
   if (stopTriggered() && systemEnabled) {
     stopMotor();
-    readyLed(false);
-    systemEnabled = false;
-    serialStop = false;
     Serial.println("STOP triggered — motor stopped. Press START to re-home.");
+    endRun("stop");
+    serialStop = false;
     delay(200);
     return;
   }
@@ -502,6 +538,6 @@ void loop() {
     return;
   }
 
-  // --- Swing-up + balance, one control step per 2 ms sample ---
-  standaloneStep();
+  // --- Hanging reference, then the selected experiment ---
+  runStep();
 }

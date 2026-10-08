@@ -92,3 +92,67 @@ float balanceV() {
   balVRef = constrain(balVRef + a * stateDt, -V_MAX, V_MAX);
   return balVRef;
 }
+
+// =============================================================================
+// SwingBal experiment: energy swing-up, then pole-placement balance, both on
+// the cart speed loop (the controller that has worked since 2026-09-30).
+// Re-homes and swings up again after a soft-limit stop (AUTO_REHOME_MAX).
+// =============================================================================
+bool sbBalancing = false;
+
+void sbStart() {
+  lastFlipMs  = millis();
+  bobSide     = 0;
+  pumpBlocked = false;
+  energyEnd   = -2;
+  swingDir    = 0;
+  // balTrim is NOT reset here: the upright offset is the same after a re-home
+  // (5.5-6.4 deg on every run of 2026-10-02), and starting from 0 after an
+  // automatic re-home parked the balanced cart at -384 mm, into the soft limit.
+  balanceGains();
+  sbBalancing = false;
+  announce("SWING");
+}
+
+bool sbStep(float dt) {
+  if (!sbBalancing) {
+    if (fabsf(theta) < CATCH_ANGLE_DEG * DEG_TO_RAD && fabsf(thetaDot) < CATCH_RATE) {
+      sbBalancing = true;
+      announce("BALANCE");
+      balanceStart();
+      speedDrive(balanceV());
+    } else {
+      speedDrive(swingV());
+    }
+  } else if (fabsf(theta) > DROP_ANGLE_DEG * DEG_TO_RAD) {
+    sbBalancing = false;
+    announce("SWING");
+    speedDrive(swingV());
+  } else {
+    speedDrive(balanceV());
+    if (autoRehomes && millis() - balStartMs > AUTO_REHOME_GOOD_MS) {
+      autoRehomes = 0;   // balance held: allow the full retry budget again
+      Serial.println("Balance holding — auto re-home count reset.");
+    }
+  }
+
+  // Human-readable lines for the console readouts (balance prints faster)
+  unsigned long every = sbBalancing ? STEP_PRINT_MS : PRINT_MS;
+  if (millis() - lastPrint >= every) {
+    lastPrint = millis();
+    if (sbBalancing) {
+      Serial.printf("BAL   th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  trim %5.2f deg  u %5.2f\n",
+                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut,
+                    balTrim * RAD_TO_DEG, uOut);
+    } else {
+      Serial.printf("SWING th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  E %5.2f  Eend %5.2f  u %5.2f\n",
+                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut, energy,
+                    energyEnd, uOut);
+    }
+  }
+  return true;   // runs until STOP or a fault
+}
+
+const char* sbState() { return sbBalancing ? "BALANCE" : "SWING"; }
+
+Experiment EXP_SWINGBAL = { "SwingBal", "Swing-up & balance", true, true, sbStart, sbStep, sbState };

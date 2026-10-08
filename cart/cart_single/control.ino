@@ -1,3 +1,17 @@
+// =============================================================================
+// Run control: state estimate, hanging reference, software safety and the run
+// lifecycle around the selected experiment:
+//   homing -> runStart() -> PH_HANG (hanging reference) -> beginExperiment()
+//   prints "run start ..." -> PH_EXP: curExp->step() + one "D" line per 2 ms
+//   -> endRun(reason) prints "run end REASON".
+// A software fault (soft limit, overspeed) brakes first (PH_BRAKE).
+// Sign conventions (after cartDir / PEND_SIGN):
+//   x     > 0 : cart right of centre (m)
+//   theta > 0 : top of pendulum leans right; 0 = upright, +/-pi = hanging (rad)
+//   u     > 0 : drive right
+// =============================================================================
+const char* brakeReason = "";   // "run end" reason once the brake has stopped the cart
+
 float wrapPi(float a) {
   a = fmodf(a + PI, 2.0f * PI);
   if (a < 0) a += 2.0f * PI;
@@ -23,37 +37,33 @@ void speedDrive(float vRef) {
   driveUCap(V_FF * vRef + KV_P * (vRef - xDot), SPEED_MAX_PWM);
 }
 
-void standaloneStart() {
+// Motor command in volts (Feedback convention, +-U_FULL_SCALE_V = full scale),
+// through the same output mapping and PWM caps as the speed loop
+void motorVolts(float u) {
+  driveUCap(u / U_FULL_SCALE_V, SPEED_MAX_PWM);
+}
+
+// State change line for the bridge and the log: ">> SWING", ">> BALANCE", ...
+void announce(const char* state) {
+  Serial.printf(">> %s\n", state);
+}
+
+// After homing: motor off, measure the hanging reference (PH_HANG)
+void runStart() {
   stopMotor();
   readEncoders();
   uOut       = 0;
   vRefOut    = 0;
   haveSample = false;
-  balState   = BAL_HANG;
+  phase      = PH_HANG;
   hangMin    = hangMax = pend_position;
   hangSum    = 0;
   hangN      = 0;
   hangStart  = millis();
-  lastFlipMs = millis();
-  bobSide    = 0;
-  pumpBlocked = false;
-  energyEnd  = -2;
-  swingDir   = 0;
-  // balTrim is NOT reset here: the upright offset is the same after a re-home
-  // (5.5-6.4 deg on every run of 2026-10-02), and starting from 0 after an
-  // automatic re-home parked the balanced cart at -384 mm, into the soft limit.
-  balanceGains();
-  printRunParams();
   Serial.println("Standalone: waiting for the pendulum to hang still...");
 }
 
-void enterState(BalState s) {
-  balState = s;
-  const char** names = BAL_NAMES;
-  Serial.printf(">> %s\n", names[s]);
-}
-
-// Update angle, position and filtered velocities from the latest packet
+// Update angle, position and filtered velocities from the latest sample
 void updateState() {
   unsigned long now = micros();
   const float k = 2.0f * PI / PEND_COUNTS_PER_REV;
@@ -98,9 +108,7 @@ void stepHang() {
                   (long)pendDownRef, (long)(hangMax - hangMin));
     haveSample = false;
     updateState();
-    stepStart  = millis();
-    lastFlipMs = millis();
-    enterState(SIGN_CHECK ? BAL_CHECK : STEP_TEST ? BAL_STEP : BAL_SWING);
+    beginExperiment();
   } else {
     hangMin = hangMax = pend_position;
     hangSum = 0;
@@ -109,117 +117,112 @@ void stepHang() {
   }
 }
 
-void standaloneStep() {
+// Hanging reference known: open the run and hand over to the experiment
+void beginExperiment() {
+  phase      = PH_EXP;
+  runActive  = true;
+  runStartMs = millis();
+  expRef     = NAN;
+  lastPrint  = 0;
+  printRunStart();
+  curExp->start();
+}
+
+// One line per control step while a run is open. theta here is continuous
+// (0 = upright, +pi = hanging at run start), unlike the wrapped control angle,
+// so swings through the bottom don't jump between +pi and -pi in the data.
+void printDataLine() {
+  const float k = 2.0f * PI / PEND_COUNTS_PER_REV;
+  float thCont = PEND_SIGN * (pend_position - pendDownRef) * k + PI - PEND_TRIM_DEG * DEG_TO_RAD;
+  Serial.printf("D %lu %.4f %.4f %.3f %.4f\n", millis() - runStartMs, xPos, thCont,
+                uOut * U_FULL_SCALE_V, expRef);
+}
+
+// Software faults: NULL if none, else the "run end" reason
+const char* safetyFault() {
+  float softLim  = SOFT_LIMIT_FRAC * halfTrackM();
+  float stopDist = xDot * xDot / (2.0f * BRAKE_DECEL);
+  bool  outward  = xPos * xDot > 0;
+  if (fabsf(xDot) > SPEED_TRIP) return "overspeed";
+  if (fabsf(xPos) > softLim || (outward && fabsf(xPos) + stopDist > softLim)) return "soft-limit";
+  return NULL;
+}
+
+// Powered stop through the speed loop (coasting only slows ~1.3 m/s^2)
+void startBrake(const char* reason) {
+  brakeReason = reason;
+  brakeRehome = curExp->autoRehome && strcmp(reason, "soft-limit") == 0
+                && autoRehomes < AUTO_REHOME_MAX;
+  Serial.printf("%s: cart at %.0f mm, %.2f m/s — braking, then %s\n",
+                strcmp(reason, "soft-limit") == 0 ? "SOFT LIMIT" : "OVERSPEED",
+                xPos * 1000.0f, xDot,
+                brakeRehome ? "re-homing." : "stopping. Press START to re-home.");
+  readyLed(false);
+  brakeStart = millis();
+  phase = PH_BRAKE;
+  announce("BRAKE");
+}
+
+void stepBrake() {
+  // Timeout in case the loop can't stop it
+  if (fabsf(xDot) < BRAKE_DONE_V || millis() - brakeStart > BRAKE_MS) {
+    stopMotor();
+    uOut = vRefOut = 0;
+    Serial.printf("Stopped at %.0f mm.\n", xPos * 1000.0f);
+    printDataLine();
+    endRun(brakeReason);
+    if (brakeRehome) {
+      autoRehomes++;
+      Serial.printf("Auto re-home %d/%d\n", autoRehomes, AUTO_REHOME_MAX);
+      delay(500);      // let the cart and pendulum settle a moment
+      runHoming();     // re-homes, then runStart() runs the experiment again
+    }
+  } else {
+    speedDrive(0);
+  }
+}
+
+// Motor off, "run end REASON" (once per run), back to idle
+void endRun(const char* reason) {
+  stopMotor();
+  uOut = vRefOut = 0;
+  if (runActive) Serial.printf("run end %s\n", reason);
+  runActive     = false;
+  phase         = PH_IDLE;
+  systemEnabled = false;
+  readyLed(false);
+}
+
+// One step per 2 ms encoder sample (called from loop() while enabled)
+void runStep() {
   if (!newSample) return;
   newSample = false;
 
-  if (balState == BAL_HANG) {
+  if (phase == PH_HANG) {
     stepHang();
-  } else {
-    updateState();
-
-    bool checkFaults = balState != BAL_CHECK && balState != BAL_DONE && balState != BAL_BRAKE;
-    const char* fault = NULL;
-    if (checkFaults) {
-      float softLim  = SOFT_LIMIT_FRAC * halfTrackM();
-      float stopDist = xDot * xDot / (2.0f * BRAKE_DECEL);
-      bool  outward  = xPos * xDot > 0;
-      if (fabsf(xPos) > softLim || (outward && fabsf(xPos) + stopDist > softLim))
-        fault = "SOFT LIMIT";
-      if (fabsf(xDot) > SPEED_TRIP) fault = "OVERSPEED";
+    if (phase == PH_HANG && millis() - lastPrint >= PRINT_MS) {
+      lastPrint = millis();
+      Serial.printf("HANG  pend %ld  swing %ld\n", (long)pend_position, (long)(hangMax - hangMin));
     }
-    if (fault) {
-      brakeRehome = (strcmp(fault, "SOFT LIMIT") == 0) && autoRehomes < AUTO_REHOME_MAX;
-      Serial.printf("%s: cart at %.0f mm, %.2f m/s — braking, then %s\n",
-                    fault, xPos * 1000.0f, xDot,
-                    brakeRehome ? "re-homing." : "stopping. Press START to re-home.");
-      readyLed(false);
-      brakeStart = millis();
-      enterState(BAL_BRAKE);
-    }
-
-    switch (balState) {
-      case BAL_BRAKE:
-        // Powered stop, then disable. Timeout in case the loop can't stop it.
-        if (fabsf(xDot) < BRAKE_DONE_V || millis() - brakeStart > BRAKE_MS) {
-          stopMotor();
-          uOut = vRefOut = 0;
-          Serial.printf("Stopped at %.0f mm.\n", xPos * 1000.0f);
-          if (brakeRehome) {
-            autoRehomes++;
-            Serial.printf("Auto re-home %d/%d\n", autoRehomes, AUTO_REHOME_MAX);
-            delay(500);      // let the cart and pendulum settle a moment
-            runHoming();     // re-homes, then standaloneStart() swings up again
-          } else {
-            systemEnabled = false;
-          }
-        } else {
-          speedDrive(0);
-        }
-        return;
-      case BAL_CHECK:
-      case BAL_DONE:
-        stopMotor();
-        uOut = vRefOut = 0;
-        break;
-      case BAL_STEP: {
-        unsigned long t = millis() - stepStart;
-        if (t >= 2UL * STEP_MS * STEP_CYCLES) {
-          stopMotor();
-          uOut = vRefOut = 0;
-          enterState(BAL_DONE);
-          Serial.println("Step test done. Set STEP_TEST 0 for swing-up.");
-        } else {
-          speedDrive((t / STEP_MS) % 2 == 0 ? STEP_V : -STEP_V);
-        }
-        break;
-      }
-      case BAL_SWING:
-        if (fabsf(theta) < CATCH_ANGLE_DEG * DEG_TO_RAD && fabsf(thetaDot) < CATCH_RATE) {
-          enterState(BAL_BALANCE);
-          balanceStart();
-          speedDrive(balanceV());
-        } else {
-          speedDrive(swingV());
-        }
-        break;
-      case BAL_BALANCE:
-        if (fabsf(theta) > DROP_ANGLE_DEG * DEG_TO_RAD) {
-          enterState(BAL_SWING);
-          speedDrive(swingV());
-        } else {
-          speedDrive(balanceV());
-          if (autoRehomes && millis() - balStartMs > AUTO_REHOME_GOOD_MS) {
-            autoRehomes = 0;   // balance held: allow the full retry budget again
-            Serial.println("Balance holding — auto re-home count reset.");
-          }
-        }
-        break;
-      default:
-        break;
-    }
+    return;
   }
 
-  // Step test and balance print fast so the cart and pendulum response is visible
-  unsigned long printEvery =
-    (balState == BAL_STEP || balState == BAL_BALANCE) ? STEP_PRINT_MS : PRINT_MS;
-  if (millis() - lastPrint >= printEvery) {
-    lastPrint = millis();
-    if (balState == BAL_HANG) {
-      Serial.printf("HANG  pend %ld  swing %ld\n", (long)pend_position, (long)(hangMax - hangMin));
-    } else if (balState == BAL_STEP) {
-      Serial.printf("STEP t %4lu  vr %5.2f  v %6.3f  u %5.2f  x %6.1f  th %7.2f  w %6.2f\n",
-                    millis() - stepStart, vRefOut, xDot, uOut, xPos * 1000.0f,
-                    theta * RAD_TO_DEG, thetaDot);
-    } else if (balState == BAL_BALANCE) {
-      Serial.printf("BAL   th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  trim %5.2f deg  u %5.2f\n",
-                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut,
-                    balTrim * RAD_TO_DEG, uOut);
-    } else if (balState != BAL_DONE) {
-      Serial.printf("%s th %7.1f deg  w %6.2f  x %6.1f mm  v %6.3f  vr %5.2f  E %5.2f  Eend %5.2f  u %5.2f\n",
-                    balState == BAL_CHECK ? "CHECK" : balState == BAL_SWING ? "SWING" : "BAL  ",
-                    theta * RAD_TO_DEG, thetaDot, xPos * 1000.0f, xDot, vRefOut, energy,
-                    energyEnd, uOut);
-    }
+  updateState();
+
+  if (phase == PH_EXP && curExp->safety) {
+    const char* fault = safetyFault();
+    if (fault) startBrake(fault);
+  }
+
+  if (phase == PH_BRAKE) {
+    stepBrake();
+    if (phase == PH_BRAKE) printDataLine();
+    return;
+  }
+
+  if (phase == PH_EXP) {
+    bool more = curExp->step(stateDt);
+    printDataLine();
+    if (!more) endRun("done");
   }
 }
