@@ -131,9 +131,12 @@ void beginExperiment() {
 // One line per control step while a run is open. theta here is continuous
 // (0 = upright, +pi = hanging at run start), unlike the wrapped control angle,
 // so swings through the bottom don't jump between +pi and -pi in the data.
+// It is measured from the hanging reference only, without PEND_TRIM_DEG: the
+// trim describes where upright balances, not where the pendulum hangs, so
+// hanging reads exactly pi and the balanced pendulum reads about +0.096 rad.
 void printDataLine() {
   const float k = 2.0f * PI / PEND_COUNTS_PER_REV;
-  float thCont = PEND_SIGN * (pend_position - pendDownRef) * k + PI - PEND_TRIM_DEG * DEG_TO_RAD;
+  float thCont = PEND_SIGN * (pend_position - pendDownRef) * k + PI;
   Serial.printf("D %lu %.4f %.4f %.3f %.4f\n", millis() - runStartMs, xPos, thCont,
                 uOut * U_FULL_SCALE_V, expRef);
 }

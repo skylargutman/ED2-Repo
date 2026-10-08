@@ -114,6 +114,33 @@ class RestDrift:
         return False
 
 
+class DataEcho:
+    """Decide what reaches the terminal. Every line still goes to the log file.
+
+    "D" data lines arrive at 500 Hz; printing them all floods a Windows console
+    and can stall the read loop. They are counted instead, and the next D line
+    after a second or more carries "(N D lines in the last T s)".
+    """
+
+    def __init__(self):
+        self.count = 0
+        self.since = None
+
+    def line(self, text, now=None):
+        if not text.startswith("D "):
+            return text
+        now = time.time() if now is None else now
+        if self.since is None:
+            self.since, self.count = now, 1
+            return None
+        if now - self.since >= 1.0:
+            summary = f"({self.count} D lines in the last {now - self.since:.1f} s)"
+            self.since, self.count = now, 1
+            return summary
+        self.count += 1
+        return None
+
+
 def log_port(port, stamp, stop):
     path = os.path.join(LOG_DIR, f"{stamp}_{port}.log")
     ser = serial.Serial()
@@ -126,12 +153,15 @@ def log_port(port, stamp, stop):
         with print_lock:
             print(f"[{port}] can't open: {e}  (is the Arduino serial monitor open?)")
         return
+    if hasattr(ser, "set_buffer_size"):     # Windows: default ~4 KB is ~0.16 s of D lines
+        ser.set_buffer_size(rx_size=1 << 20)
     with print_lock:
         print(f"[{port}] logging to {path}")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         file_lock = threading.Lock()
         open_ports[port] = (ser, f, file_lock)
         rest = RestDrift()
+        echo = DataEcho()
         buf = b""
         while not stop.is_set():
             try:
@@ -150,8 +180,10 @@ def log_port(port, stamp, stop):
                 for raw in lines:
                     text = raw.decode("utf-8", errors="replace").rstrip("\r")
                     f.write(f"{stamp_now()} {text}\n")
-                    with print_lock:
-                        print(f"[{port}] {text}")
+                    shown = echo.line(text)
+                    if shown is not None:
+                        with print_lock:
+                            print(f"[{port}] {shown}")
                     report = rest.on_line(text)
                     if report:
                         f.write(f"{stamp_now()} {report}\n")
