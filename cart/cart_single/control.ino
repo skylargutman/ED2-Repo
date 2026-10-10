@@ -117,6 +117,7 @@ void beginExperiment() {
   runActive  = true;
   runStartMs = millis();
   expRef     = NAN;
+  expEndReason = "done";
   lastPrint  = 0;
   printRunStart();
   curExp->start();
@@ -220,6 +221,6 @@ void runStep() {
   if (phase == PH_EXP) {
     bool more = curExp->step(stateDt);
     printDataLine();
-    if (!more) endRun("done");
+    if (!more) endRun(expEndReason);
   }
 }

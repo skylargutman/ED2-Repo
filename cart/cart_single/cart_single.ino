@@ -353,6 +353,9 @@ Experiment* EXPS[MAX_EXPS];
 int         N_EXPS = 0;
 Experiment* curExp = NULL;   // selected experiment (EXPS[0] at boot)
 float       expRef = NAN;    // current setpoint for the D line, NAN = none
+// "run end" reason when step() returns false: "done", or "error" when the
+// experiment failed (the console then shows the run in red)
+const char* expEndReason = "done";
 
 enum RunPhase { PH_IDLE, PH_HANG, PH_EXP, PH_BRAKE };
 RunPhase      phase      = PH_IDLE;
