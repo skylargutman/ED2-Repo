@@ -1,7 +1,10 @@
 # ESP32 Experiments in the Remote Console: Design
 
 Date: 2026-10-07
-Status: draft for review
+Status: stages 0–2 built. Stages 3–8 superseded on 2026-10-10: the Feedback
+experiments run as Simulink models on the Pi instead
+(`2026-10-10-simulink-uart-design.md`). SwingBal, FreeSwing and Friction stay
+in the firmware.
 
 ## Goal
 

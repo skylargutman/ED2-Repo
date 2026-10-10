@@ -384,6 +384,43 @@ inputs and caused false hits near the centre of the track.
 | Balances but oscillates faster and faster | lower `BAL_POLE` (speed-loop lag too large for it) or raise `VEL_FILTER_S` |
 | Balances but parks off-centre / drifts to one end | check `PEND_COUNTS_PER_REV` (1968), then adjust `PEND_TRIM_DEG` (~160 mm per 3°) |
 
+## Single board, Simulink on the Pi (v11.2)
+
+`cart/cart_single` (one ESP32) runs the experiment `Simulink`: the Raspberry Pi
+runs the Feedback model and sends the motor command over UART; the ESP32
+homes, measures, drives the motor and keeps every safety stop. Design:
+`docs/superpowers/specs/2026-10-10-simulink-uart-design.md`.
+
+| Pi header pin | Pi signal | ESP32 GPIO | Use |
+|---|---|---|---|
+| 8 | GPIO14, UART TX | 16 (UART2 RX) | commands |
+| 10 | GPIO15, UART RX | 17 (UART2 TX) | measurements |
+| 6 | GND | GND | common ground |
+| 36 | GPIO16 | 4 | start pulse (selects Simulink, homes) |
+| 38 | GPIO20 | 5 | stop pulse |
+| 33 | GPIO13 | 18 | HIGH while a Simulink run is open |
+
+UART2: 921600 baud 8N1, `/dev/serial0` on the Pi (raspi-config: serial login
+shell off, serial hardware on). Lockstep: each command is answered at once
+with one measurement.
+
+- **Command, Pi to ESP32 (6 bytes):** `A5 5A` + `u` float32 LE in volts
+  (+ = right). Applied with `motorVolts(u)` (±2.5 V full scale, friction
+  compensation from the Friction experiment). NaN, infinite or |u| > 5 V is
+  dropped and counted.
+- **Measurement, ESP32 to Pi (12 bytes):** `A5 5A`, cart count int32 LE (0 at
+  centre, + right), pendulum count int32 LE (0 hanging), flags (`0x01` run
+  open, `0x02` ready line HIGH, `0x04` Simulink selected), XOR of bytes 2–10.
+  Bytes 2–11 are the old SPI packet.
+- **Run:** start pulse → homing → hanging reference → `>> SIMWAIT` (ready line
+  HIGH, a measurement every 100 ms) → first command → `>> SIM`. Ends on the Pi
+  stop pulse, STOP, soft limit, overspeed, limit switch, 50 ms without a
+  command, or no first command within 30 s (`run end timeout`). Before
+  `run end`: `result pi_commands N` and `result pi_drops N`.
+- **Check without Simulink:** `picontrol/uart_link_check.py` (see its
+  `--help`); packet code and tests in `picontrol/pilink.py`,
+  `picontrol/tests/`.
+
 ## Handoff summary
 
 ```
