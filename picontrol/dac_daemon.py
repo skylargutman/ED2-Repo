@@ -15,10 +15,13 @@
 #   Vref measured at 5.14V — used for accurate voltage scaling
 #   2.5V neutral = DAC value 2000 (calibrated)
 #
-# GPIO (Pi 5, using lgpio on gpiochip0):
-#   GPIO  6  (Pin 31) → ESP32 #1 GPIO 33 : system_ready / reset (owned by Simulink)
-#   GPIO 16  (Pin 36) → ESP32 #2 GPIO  4 : homing start trigger
-#   GPIO 20  (Pin 38) → ESP32 #2 GPIO  5 : stop trigger
+# GPIO (Pi 5, using lgpio), single-board ESP32 (cart/cart_single, Simulink mode):
+#   GPIO 16  (Pin 36) → ESP32 GPIO  4 : start pulse (the ESP32 homes and opens a Simulink run)
+#   GPIO 20  (Pin 38) → ESP32 GPIO  5 : stop pulse
+#   GPIO 13  (Pin 33) ← ESP32 GPIO 18 : HIGH while a Simulink run is open
+#   The motor command goes to the ESP32 over UART (/dev/serial0), sent by the
+#   Simulink model. The MCP4725 DAC is no longer fitted: DAC writes are skipped
+#   when it is absent (dac_probe at startup).
 #
 # MQTT:
 #   Broker : sciencelabtoyou.com:1885 (anonymous)
@@ -60,10 +63,9 @@ NEUTRAL_VOLTAGE = 2.5       # volts — motor controller idle
 
 # GPIO chip (Pi 5 uses gpiochip0 / pinctrl-rp1)
 GPIO_CHIP       = 15 # this was previously 0, but it should be 15 for the Pi 5 ?? - alex
-GPIO_SYSREADY   = 6         # → ESP32 #1 GPIO 33 : owned by Simulink, not claimed here
-GPIO_HOME_START = 16        # → ESP32 #2 GPIO  4 : homing start trigger
-GPIO_STOP       = 20        # → ESP32 #2 GPIO  5 : stop trigger
-GPIO_HOME_DONE  = 13        # ← ESP32 #2 GPIO 18 : homing complete signal (input)
+GPIO_HOME_START = 16        # → ESP32 GPIO  4 : start pulse
+GPIO_STOP       = 20        # → ESP32 GPIO  5 : stop pulse
+GPIO_HOME_DONE  = 13        # ← ESP32 GPIO 18 : HIGH while a Simulink run is open (input)
 
 PULSE_MS        = 200       # GPIO pulse duration in milliseconds
 HOMING_TIMEOUT_S = 30      # max seconds to wait for homing complete signal
@@ -102,6 +104,7 @@ _gpio_handle    = None   # lgpio handle — set in run_daemon()
 _mqtt_client    = None   # paho client  — set in setup_mqtt()
 _current_exp    = None   # currently running experiment name (no .elf)
 _model_process  = None   # subprocess.Popen handle for running model
+_dac_present    = False  # MCP4725 answered on I2C — set by dac_probe()
 
 # =============================================================================
 # MCP4725 DAC helpers
@@ -112,8 +115,23 @@ def voltage_to_dac(volts: float) -> int:
     raw = int((volts / VREF) * 4096)
     return max(0, min(4095, raw))
 
+def dac_probe() -> bool:
+    """Check once whether the MCP4725 answers. The single-board rig has none:
+    the motor command goes over UART, so DAC writes are then skipped."""
+    global _dac_present
+    try:
+        _bus.read_byte(MCP4725_ADDR)
+        _dac_present = True
+        log.info(f"MCP4725 found at 0x{MCP4725_ADDR:02x}")
+    except Exception:
+        _dac_present = False
+        log.info("MCP4725 not found: DAC writes skipped (motor command goes over UART)")
+    return _dac_present
+
 def dac_write(volts: float):
-    """Write voltage to MCP4725. Fast write mode (no EEPROM)."""
+    """Write voltage to MCP4725. Fast write mode (no EEPROM). No-op without a DAC."""
+    if not _dac_present:
+        return
     val = voltage_to_dac(volts)
     upper = (val >> 4) & 0xFF
     lower = (val & 0x0F) << 4
@@ -143,8 +161,7 @@ def gpio_pulse(pin: int, duration_ms: int = PULSE_MS):
 
 def gpio_setup(handle):
     """Configure output pins, drive LOW initially.
-    NOTE: GPIO_SYSREADY (GPIO 6) is owned by Simulink GPIO Write block.
-    Daemon only claims the ESP32 #2 trigger pins and homing done input."""
+    Claims the ESP32 start/stop pulse pins and the ready (homing done) input."""
     for pin in [GPIO_HOME_START, GPIO_STOP]:
         lgpio.gpio_claim_output(handle, pin, 0)
     lgpio.gpio_claim_input(handle, GPIO_HOME_DONE)
@@ -391,8 +408,8 @@ def run_daemon():
         _bus = smbus2.SMBus(I2C_BUS)
         log.info(f"I2C bus {I2C_BUS} opened")
     except Exception as e:
-        log.error(f"Failed to open I2C bus: {e}")
-        sys.exit(1)
+        log.warning(f"Failed to open I2C bus: {e} (running without the DAC)")
+        _bus = None
 
     # --- Open GPIO chip ---
     try:
@@ -405,9 +422,10 @@ def run_daemon():
     # --- Configure GPIO pins ---
     gpio_setup(_gpio_handle)
 
-    # --- Set DAC to neutral immediately at power-up ---
-    log.info("Power-up: setting DAC to neutral (2.5V)")
-    dac_set_neutral()
+    # --- Set DAC to neutral immediately at power-up (if fitted) ---
+    if dac_probe():
+        log.info("Power-up: setting DAC to neutral (2.5V)")
+        dac_set_neutral()
 
     # --- Start MQTT background thread ---
     mqtt_client = setup_mqtt()
@@ -446,7 +464,8 @@ def run_daemon():
         for pin in [GPIO_HOME_START, GPIO_STOP]:
             lgpio.gpio_write(_gpio_handle, pin, 0)
         lgpio.gpiochip_close(_gpio_handle)
-        _bus.close()
+        if _bus is not None:
+            _bus.close()
         log.info("=== Pi DAC Daemon stopped ===")
 
 # =============================================================================
