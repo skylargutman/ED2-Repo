@@ -68,7 +68,7 @@ GPIO_STOP       = 20        # → ESP32 GPIO  5 : stop pulse
 GPIO_HOME_DONE  = 13        # ← ESP32 GPIO 18 : HIGH while a Simulink run is open (input)
 
 PULSE_MS        = 200       # GPIO pulse duration in milliseconds
-HOMING_TIMEOUT_S = 30      # max seconds to wait for homing complete signal
+HOMING_TIMEOUT_S = 60      # max seconds to wait for GPIO 13 (homing + hanging reference, ~15 s nominal)
 
 # Simulink process name to watch for (updated dynamically when experiment launches)
 SIMULINK_PROCESS_NAME = ""  # empty until first experiment launched
@@ -225,7 +225,8 @@ def launch_experiment(exp_name: str, params: dict):
         time.sleep(0.1)
 
     if not homing_ok:
-        log.error("Homing timed out — experiment not launched")
+        log.error("Homing timed out — experiment not launched; stopping the ESP32")
+        gpio_pulse(GPIO_STOP)   # otherwise it opens a Simulink run with no model
         mqtt_publish("error:homing_timeout")
         return
 
