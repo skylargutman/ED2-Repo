@@ -223,6 +223,9 @@ float V_MAX           = 0.8f;     // m/s: speed command cap   [online]
 float FRIC_POS_V = (RUN_MIN_PWM + RUN_RIGHT_EXTRA_PWM) * U_FULL_SCALE_V / SPEED_MAX_PWM;   // [online]
 float FRIC_NEG_V = RUN_MIN_PWM * U_FULL_SCALE_V / SPEED_MAX_PWM;                           // [online]
 #define FRIC_MAX_V          1.5f     // limit for stored values (PARAMS range)
+
+// --- Free swing (experiment 1): motor off, recording time ---
+float FS_DURATION_S   = 30.0f;    // s   [online]
 #define SPEED_TRIP          1.8f     // m/s: faster than this = fault stop
 
 // --- Swing-up (energy pumping on the speed loop) ---
@@ -402,6 +405,8 @@ Param PARAMS[] = {
   // Friction compensation used by motorVolts() (measured and saved by "Friction")
   { "Friction", "FRIC_POS_V",      &FRIC_POS_V,      0.0f,   FRIC_MAX_V, "V",  "breakaway command driving right (+x)" },
   { "Friction", "FRIC_NEG_V",      &FRIC_NEG_V,      0.0f,   FRIC_MAX_V, "V",  "breakaway command driving left (-x)" },
+  // FreeSwing
+  { "FreeSwing", "FS_DURATION_S",  &FS_DURATION_S,   5.0f, 180.0f,  "s",       "how long to record the free swing" },
 };
 
 const int N_PARAMS = sizeof(PARAMS) / sizeof(PARAMS[0]);
