@@ -5,6 +5,7 @@
 void registerExperiments() {
   EXPS[N_EXPS++] = &EXP_SWINGBAL;
   EXPS[N_EXPS++] = &EXP_FREESWING;
+  EXPS[N_EXPS++] = &EXP_FRICTION;
   EXPS[N_EXPS++] = &EXP_SIGNCHECK;
   EXPS[N_EXPS++] = &EXP_STEPTEST;
   curExp = EXPS[0];

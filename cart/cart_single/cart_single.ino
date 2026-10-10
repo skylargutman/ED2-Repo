@@ -226,6 +226,11 @@ float FRIC_NEG_V = RUN_MIN_PWM * U_FULL_SCALE_V / SPEED_MAX_PWM;                
 
 // --- Free swing (experiment 1): motor off, recording time ---
 float FS_DURATION_S   = 30.0f;    // s   [online]
+
+// --- Static friction (experiment 2): ramp until the cart moves ---
+float FR_RAMP_VPS     = 0.5f;     // V/s ramp of the raw motor command   [online]
+#define FR_MOVE_COUNTS      13       // ~1 mm of cart travel = "it moved"
+#define FR_SETTLE_MS        1000     // motor off between the two directions
 #define SPEED_TRIP          1.8f     // m/s: faster than this = fault stop
 
 // --- Swing-up (energy pumping on the speed loop) ---
@@ -407,6 +412,8 @@ Param PARAMS[] = {
   { "Friction", "FRIC_NEG_V",      &FRIC_NEG_V,      0.0f,   FRIC_MAX_V, "V",  "breakaway command driving left (-x)" },
   // FreeSwing
   { "FreeSwing", "FS_DURATION_S",  &FS_DURATION_S,   5.0f, 180.0f,  "s",       "how long to record the free swing" },
+  // Friction (the measured values are FRIC_POS_V / FRIC_NEG_V above)
+  { "Friction", "FR_RAMP_VPS",     &FR_RAMP_VPS,     0.1f,   2.0f,  "V/s",     "how fast the motor command ramps up" },
 };
 
 const int N_PARAMS = sizeof(PARAMS) / sizeof(PARAMS[0]);
