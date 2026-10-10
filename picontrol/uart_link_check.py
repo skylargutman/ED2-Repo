@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Check the Pi <-> ESP32 UART link (Simulink mode) without Simulink.
+
+Run on the Pi, from the picontrol folder:
+  python3 uart_link_check.py                      # u = 0 for 10 s
+  python3 uart_link_check.py --u-amp 0.8          # +-0.8 V square wave, 0.5 s each way
+  python3 uart_link_check.py --garble 100         # every 100th command is NaN (must be dropped)
+  python3 uart_link_check.py --gpio               # pulse start first and stop at the end
+
+Without --gpio, start a Simulink run another way: console "exp select Simulink"
+then Run, or the START button with Simulink selected. With --gpio, stop
+dac_daemon.py first (it owns the start/stop lines).
+When the check ends without --gpio, the ESP32 ends the run itself with
+"run end timeout" 50 ms after the last command. That is expected.
+"""
+import argparse
+import statistics
+import time
+from dataclasses import dataclass, field
+
+from pilink import CMD_LEN, MeasurementParser, encode_command
+
+GPIO_HOME_START = 16      # Pi GPIO -> ESP32 GPIO 4 (start pulse)
+GPIO_STOP = 20            # Pi GPIO -> ESP32 GPIO 5 (stop pulse)
+PULSE_S = 0.2
+
+
+@dataclass
+class LinkStats:
+    commands: int = 0
+    replies: int = 0
+    rtts: list = field(default_factory=list)
+    bad_checksums: int = 0
+    last: object = None
+    end: str = ""
+
+
+def _next_measurement(ser, parser, queue, deadline):
+    while not queue:
+        if time.monotonic() > deadline:
+            return None
+        queue.extend(parser.feed(ser.read(64)))
+    return queue.pop(0)
+
+
+def wait_for_ready(ser, parser, timeout_s):
+    """Read the ESP32's 100 ms idle packets until one says a Simulink run is open."""
+    queue = []
+    deadline = time.monotonic() + timeout_s
+    while True:
+        m = _next_measurement(ser, parser, queue, deadline)
+        if m is None or m.ready:
+            return m
+
+
+def lockstep(ser, parser, duration_s, u_of_t, garble_every=0, reply_timeout_s=0.05):
+    stats = LinkStats()
+    queue = []
+    t0 = time.monotonic()
+    while True:
+        t = time.monotonic() - t0
+        if t >= duration_s:
+            stats.end = "time up"
+            break
+        stats.commands += 1
+        if garble_every and stats.commands % garble_every == 0:
+            ser.write(encode_command(float("nan")))   # the ESP32 must drop it, not answer
+            continue
+        sent = time.monotonic()
+        ser.write(encode_command(u_of_t(t)))
+        m = _next_measurement(ser, parser, queue, sent + reply_timeout_s)
+        if m is None:
+            stats.end = f"no reply within {reply_timeout_s * 1000:.0f} ms (run ended on the ESP32?)"
+            break
+        stats.rtts.append(time.monotonic() - sent)
+        stats.replies += 1
+        stats.last = m
+        if not m.ready:
+            stats.end = "ESP32 left the run (ready flag off)"
+            break
+    stats.bad_checksums = parser.bad_checksums
+    return stats
+
+
+def square_wave(amp, half_period_s=0.5):
+    return lambda t: amp if int(t / half_period_s) % 2 == 0 else -amp
+
+
+def _pulse(handle, pin):
+    import lgpio
+    lgpio.gpio_write(handle, pin, 1)
+    time.sleep(PULSE_S)
+    lgpio.gpio_write(handle, pin, 0)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--port", default="/dev/serial0")
+    ap.add_argument("--baud", type=int, default=921600)
+    ap.add_argument("--seconds", type=float, default=10.0, help="lockstep duration")
+    ap.add_argument("--u-amp", type=float, default=0.0, help="square wave amplitude in volts (0 = u stays 0)")
+    ap.add_argument("--garble", type=int, default=0, metavar="N", help="send NaN as every Nth command")
+    ap.add_argument("--gpio", action="store_true", help="pulse start before and stop after")
+    ap.add_argument("--gpio-chip", type=int, default=15, help="lgpio chip (dac_daemon.py uses 15 on the Pi 5)")
+    ap.add_argument("--ready-timeout", type=float, default=60.0, help="seconds to wait for the run to open")
+    args = ap.parse_args(argv)
+
+    import serial
+    ser = serial.Serial(args.port, args.baud, timeout=0.0005)
+    ser.reset_input_buffer()
+    handle = None
+    if args.gpio:
+        import lgpio
+        handle = lgpio.gpiochip_open(args.gpio_chip)
+        for pin in (GPIO_HOME_START, GPIO_STOP):
+            lgpio.gpio_claim_output(handle, pin, 0)
+        _pulse(handle, GPIO_HOME_START)
+        print("Start pulse sent.")
+
+    print("Waiting for a Simulink run (homing + hanging reference take about 15 s)...")
+    parser = MeasurementParser()
+    m = wait_for_ready(ser, parser, args.ready_timeout)
+    if m is None:
+        print(f"No ready packet within {args.ready_timeout:.0f} s. Is Simulink selected and running?")
+        return 1
+    print(f"Ready: cart {m.cart}, pend {m.pend}, flags 0x{m.flags:02x}")
+
+    u_of_t = square_wave(args.u_amp) if args.u_amp else (lambda t: 0.0)
+    stats = lockstep(ser, parser, args.seconds, u_of_t, args.garble)
+    if handle is not None:
+        _pulse(handle, GPIO_STOP)
+        print("Stop pulse sent.")
+
+    rate = stats.replies / args.seconds if stats.end == "time up" else float("nan")
+    print(f"Ended: {stats.end}")
+    print(f"Commands {stats.commands}, replies {stats.replies}, loop rate {rate:.0f} Hz")
+    if stats.rtts:
+        print(f"Round trip: median {statistics.median(stats.rtts) * 1000:.3f} ms, "
+              f"max {max(stats.rtts) * 1000:.3f} ms")
+    print(f"Bad checksums {stats.bad_checksums}, skipped bytes {parser.skipped_bytes}")
+    if stats.last is not None:
+        print(f"Last: cart {stats.last.cart}, pend {stats.last.pend}, flags 0x{stats.last.flags:02x}")
+    return 0 if stats.end == "time up" and stats.bad_checksums == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
