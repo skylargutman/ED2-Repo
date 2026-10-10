@@ -1,8 +1,10 @@
 import math
+import statistics
+import time
 
 from pilink import (FLAG_HOMED, FLAG_READY, FLAG_SIMULINK, CMD_LEN, MeasurementParser,
                     decode_command, encode_measurement)
-from uart_link_check import lockstep, square_wave, wait_for_ready
+from uart_link_check import blast, lockstep, square_wave, wait_for_ready
 
 READY = FLAG_READY | FLAG_HOMED | FLAG_SIMULINK
 
@@ -53,8 +55,10 @@ def test_lockstep_runs_until_time_up():
 
 
 def test_lockstep_stops_when_esp_stops_answering():
+    # keeps resending for 40 ms after the last reply, then gives up
     stats = lockstep(FakeEsp(answer_limit=3), MeasurementParser(), 1.0, lambda t: 0.0)
-    assert stats.replies == 3 and stats.commands == 4
+    assert stats.replies == 3 and stats.commands > 4
+    assert stats.missed_replies == stats.commands - 3
     assert stats.end.startswith("no reply")
 
 
@@ -75,3 +79,55 @@ def test_garble_sends_nan_and_skips_waiting_for_its_reply():
 def test_square_wave():
     f = square_wave(0.8, 0.5)
     assert f(0.1) == 0.8 and f(0.6) == -0.8 and f(1.1) == 0.8
+
+
+class PyserialLikeEsp(FakeEsp):
+    """read(n) like pyserial with a timeout: returns at once only when n bytes are
+    waiting, otherwise sits out the timeout and returns what is there."""
+
+    def read(self, n=1):
+        if len(self.out) < n:
+            time.sleep(0.0005)
+        return FakeEsp.read(self, n)
+
+
+class LosesReplies(FakeEsp):
+    """Never answers the given command numbers (a byte of that command was lost)."""
+
+    def __init__(self, lost, **kw):
+        super().__init__(**kw)
+        self.lost = set(lost)
+
+    def write(self, data):
+        before = len(self.out)
+        n = len(self.commands)
+        super().write(data)
+        if len(self.commands) > n and len(self.commands) in self.lost:
+            del self.out[before:]
+        return len(data)
+
+
+def test_reply_is_read_without_waiting_for_the_serial_timeout():
+    stats = lockstep(PyserialLikeEsp(), MeasurementParser(), 0.05, lambda t: 0.0)
+    assert statistics.median(stats.rtts) < 0.0003
+
+
+def test_one_lost_reply_does_not_end_the_run():
+    esp = LosesReplies({5})
+    stats = lockstep(esp, MeasurementParser(), 0.1, lambda t: 0.0)
+    assert stats.end == "time up"
+    assert stats.missed_replies == 1
+    assert stats.replies == stats.commands - 1
+
+
+def test_rate_paces_the_commands():
+    stats = lockstep(FakeEsp(), MeasurementParser(), 0.1, lambda t: 0.0, rate_hz=200)
+    assert 17 <= stats.commands <= 21
+
+
+def test_blast_writes_commands_without_reading():
+    esp = FakeEsp()
+    esp.read = None                     # blast must never read
+    n = blast(esp, 0.05, 0.75, rate_hz=1000)   # 0.75 is exact in float32
+    assert n == len(esp.commands) > 10
+    assert set(esp.commands) == {0.75}
