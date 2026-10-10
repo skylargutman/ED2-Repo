@@ -70,8 +70,10 @@ does all the control.
    (GPIO 16, 200 ms).
 2. **The ESP32 selects `Simulink`** whatever experiment was selected, homes,
    and measures the hanging reference as usual. When the run opens it raises
-   **homing complete** (GPIO 18, which follows the status LED) and waits with
-   the motor off.
+   **homing complete** (GPIO 18) and waits with the motor off. GPIO 18 is
+   HIGH only while a Simulink run is open: from the end of the hanging
+   reference until the run ends. Other experiments leave it LOW, so the
+   daemon never launches a model against a different experiment.
 3. The daemon sees GPIO 13 HIGH and launches the model's `.elf`. It writes
    no DAC values: with no MCP4725 present, DAC writes are skipped (part D).
 4. **While waiting** for the first command, the ESP32 sends a measurement
@@ -151,8 +153,10 @@ The ESP32 receiver:
   is not answered and counts toward the 50 ms timeout. Values between 2.5
   and 5 V are clamped to ±2.5 V by `motorVolts`.
 - Ignores packets outside a Simulink run.
-- Counts dropped packets. The count is printed on the `run end` line, for
-  example `run end stop drops=3`.
+- Counts commands and dropped packets. Both are reported before
+  `run end` as `result pi_commands N` and `result pi_drops N`. The bridge
+  already attaches `result` lines to the run, and the `run end` line keeps
+  its single-word reason.
 
 ## Firmware (`cart/cart_single/`)
 
@@ -166,7 +170,8 @@ The ESP32 receiver:
 - **`hardware.ino`:**
   - `startTriggered()` and `stopTriggered()` also read the Pi lines.
     A Pi start pulse sets a flag that makes the next run use `Simulink`.
-  - `readyLed()` also drives GPIO 18.
+  - `piReadyLine(bool)` drives GPIO 18. `readyLed(false)` also clears
+    it, so every run end and brake drops the line.
 - **New tab `pi_link.ino`:**
   - packet receive (header search, validity check);
   - packet send (`sendMeasurement(flags)`);
