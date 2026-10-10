@@ -37,12 +37,6 @@ void speedDrive(float vRef) {
   driveUCap(V_FF * vRef + KV_P * (vRef - xDot), SPEED_MAX_PWM);
 }
 
-// Motor command in volts (Feedback convention, +-U_FULL_SCALE_V = full scale),
-// through the same output mapping and PWM caps as the speed loop
-void motorVolts(float u) {
-  driveUCap(u / U_FULL_SCALE_V, SPEED_MAX_PWM);
-}
-
 // State change line for the bridge and the log: ">> SWING", ">> BALANCE", ...
 void announce(const char* state) {
   Serial.printf(">> %s\n", state);

@@ -51,6 +51,7 @@
 
 #include "driver/pulse_cnt.h"
 #include <WiFi.h>
+#include <Preferences.h>
 
 #define FW_VERSION "11.1-single"
 
@@ -212,6 +213,16 @@ float DROP_ANGLE_DEG  = 34.4f;    // deg — lost it, back to swing-up   [online
 float V_FF            = 0.25f;    // u per m/s (homing: PWM 50-60 ran ~0.5 m/s)   [online]
 float KV_P            = 1.5f;     // u per m/s of speed error   [online]
 float V_MAX           = 0.8f;     // m/s: speed command cap   [online]
+
+// --- Friction compensation for motorVolts() (measured by the Friction experiment) ---
+// Breakaway motor command per direction, in volts on the motorRawVolts() scale
+// (2.5 V = SPEED_MAX_PWM). Defaults equal the offsets the speed loop has always
+// used (RUN_MIN_PWM, + RUN_RIGHT_EXTRA_PWM to the right): 0.556 / 0.417 V.
+// Saved in flash when measured or set; reloaded at boot; "defaults" restores
+// these compiled values and clears flash.
+float FRIC_POS_V = (RUN_MIN_PWM + RUN_RIGHT_EXTRA_PWM) * U_FULL_SCALE_V / SPEED_MAX_PWM;   // [online]
+float FRIC_NEG_V = RUN_MIN_PWM * U_FULL_SCALE_V / SPEED_MAX_PWM;                           // [online]
+#define FRIC_MAX_V          1.5f     // limit for stored values (PARAMS range)
 #define SPEED_TRIP          1.8f     // m/s: faster than this = fault stop
 
 // --- Swing-up (energy pumping on the speed loop) ---
@@ -388,6 +399,9 @@ Param PARAMS[] = {
   { NULL,       "KV_P",            &KV_P,            0.5f,   3.0f,  "1/(m/s)", "speed loop gain" },
   { NULL,       "V_FF",            &V_FF,            0.1f,   0.5f,  "1/(m/s)", "speed loop feed-forward" },
   { NULL,       "V_MAX",           &V_MAX,           0.2f,   1.0f,  "m/s",     "top cart speed" },
+  // Friction compensation used by motorVolts() (measured and saved by "Friction")
+  { "Friction", "FRIC_POS_V",      &FRIC_POS_V,      0.0f,   FRIC_MAX_V, "V",  "breakaway command driving right (+x)" },
+  { "Friction", "FRIC_NEG_V",      &FRIC_NEG_V,      0.0f,   FRIC_MAX_V, "V",  "breakaway command driving left (-x)" },
 };
 
 const int N_PARAMS = sizeof(PARAMS) / sizeof(PARAMS[0]);
@@ -452,6 +466,7 @@ void setup() {
   Serial.println("=== ESP32 Single-Board Pendulum Controller v" FW_VERSION " ===");
   registerExperiments();    // fills EXPS[], selects EXPS[0]
   captureParamDefaults();   // the starting values become the "defaults"
+  loadFriction();           // measured friction compensation, if saved
 
   pinMode(STATUS_LED, OUTPUT);
   readyLed(false);

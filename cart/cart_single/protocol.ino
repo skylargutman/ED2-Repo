@@ -104,6 +104,7 @@ void handleCommand(char* line) {
   } else if (!strcasecmp(cmd, "defaults")) {
     if (!isIdle()) { Serial.printf("err defaults busy (%s)\n", stateName()); return; }
     for (int i = 0; i < N_PARAMS; i++) *PARAMS[i].value = PARAMS[i].def;
+    clearFriction();          // otherwise a reboot would bring the old measurement back
     Serial.println("ok defaults");
   } else if (!strcasecmp(cmd, "set")) {
     char* name = strtok(NULL, " \t");
@@ -120,6 +121,7 @@ void handleCommand(char* line) {
       return;
     }
     *PARAMS[i].value = f;
+    if (strncmp(PARAMS[i].name, "FRIC_", 5) == 0) saveFriction();   // survives a reboot
     Serial.printf("ok %s %g\n", PARAMS[i].name, f);
   } else if (!strcasecmp(cmd, "io")) {
     // Raw encoder pin levels too: if a level toggles while its count stays put,
