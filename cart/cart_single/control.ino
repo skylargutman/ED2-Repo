@@ -184,6 +184,7 @@ void stepBrake() {
 void endRun(const char* reason) {
   stopMotor();
   uOut = vRefOut = 0;
+  if (runActive && simulinkSelected()) simFinish();   // result pi_commands / pi_drops
   if (runActive) Serial.printf("run end %s\n", reason);
   runActive     = false;
   phase         = PH_IDLE;

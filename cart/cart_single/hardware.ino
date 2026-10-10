@@ -23,9 +23,17 @@ void drive(Dir d, int pwm) {
 
 const char* dirName(Dir d) { return d == DIR_LEFT ? "left" : "right"; }
 
-// Status LED: on while homed and running (replaces the homing-done line to the Pi)
+// Pi ready line (GPIO 18 -> Pi GPIO13): HIGH only while a Simulink run is open
+// (set by simStart). dac_daemon.py launches the model when it goes HIGH.
+void piReadyLine(bool on) {
+  digitalWrite(HOMING_DONE_PIN, on ? HIGH : LOW);
+}
+
+// Status LED: on while homed and running. Turning it off (run end, brake,
+// homing) also drops the Pi ready line.
 void readyLed(bool on) {
   digitalWrite(STATUS_LED, on ? HIGH : LOW);
+  if (!on) piReadyLine(false);
 }
 
 bool leftLimitHit()  { return digitalRead(LEFT_LIMIT)  == LOW; }
@@ -39,17 +47,19 @@ bool limitAhead(Dir d)  { return d == DIR_LEFT ? leftLimitHit()  : rightLimitHit
 bool limitBehind(Dir d) { return d == DIR_LEFT ? rightLimitHit() : leftLimitHit(); }
 
 // =============================================================================
-// Trigger helpers — unify button and USB serial inputs
+// Trigger helpers — unify button, USB serial and Pi GPIO inputs
 // =============================================================================
+bool piStartHigh() { return digitalRead(PI_START_PIN) == HIGH; }
+
 bool startTriggered() {
-  return (digitalRead(START_BTN) == LOW) || serialStart;
+  return (digitalRead(START_BTN) == LOW) || serialStart || piStartHigh();
 }
 
 bool stopTriggered() {
   // STOP_BTN is normally closed wired to GND:
   //   resting = closed = LOW = not stopped
   //   pressed = open   = HIGH (pulled up) = stopped
-  return (digitalRead(STOP_BTN) == HIGH) || serialStop;
+  return (digitalRead(STOP_BTN) == HIGH) || serialStop || digitalRead(PI_STOP_PIN) == HIGH;
 }
 
 // =============================================================================

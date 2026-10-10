@@ -34,6 +34,14 @@
 //   - PEND_TRIM_DEG stays 0: a 5.5 preset broke the swing-up (2026-10-08 log);
 //     the balance self-trim handles the upright offset.
 //
+// Changes in 11.2 (Simulink on the Pi; design in
+// docs/superpowers/specs/2026-10-10-simulink-uart-design.md):
+//   - Experiment "Simulink": the Pi sends the motor command (volts, float32)
+//     over UART2 (RX 16 / TX 17, 921600) and gets encoder counts back in
+//     lockstep (pi_link.ino, exp_simulink.ino).
+//   - Pi lines back: start pulse in (GPIO 4, selects Simulink), stop pulse
+//     in (GPIO 5), ready out (GPIO 18, HIGH while a Simulink run is open).
+//
 // Pin Assignments:
 //   GPIO 39 : Cart encoder A       (input-only; 4.7k pull-up to 5V + 10k/22k divider)
 //   GPIO 36 : Cart encoder B       (same)
@@ -46,14 +54,19 @@
 //   GPIO 32 : Left limit switch    (to GND, pull-up, active LOW)
 //   GPIO 33 : Right limit switch   (to GND, pull-up, active LOW)
 //   GPIO  2 : Status LED           (on-board LED on most DevKits)
-//   Free for a later Pi link: 4, 13, 16, 17, 18, 19, 21, 22, 23
+//   GPIO  4 : Pi start pulse       (Pi GPIO16 / pin 36, pull-down, active HIGH)
+//   GPIO  5 : Pi stop pulse        (Pi GPIO20 / pin 38, pull-down, active HIGH; strapping pin)
+//   GPIO 18 : Pi ready line        (to Pi GPIO13 / pin 33, HIGH while a Simulink run is open)
+//   GPIO 16 : UART2 RX             (from Pi GPIO14 TX / pin 8)
+//   GPIO 17 : UART2 TX             (to Pi GPIO15 RX / pin 10)
+//   Free: 13, 19, 21, 22, 23
 // =============================================================================
 
 #include "driver/pulse_cnt.h"
 #include <WiFi.h>
 #include <Preferences.h>
 
-#define FW_VERSION "11.1-single"
+#define FW_VERSION "11.2-single"
 
 // --- Encoder pins (input-only GPIOs, no internal pull-ups) ---
 #define CART_ENC_A    39
@@ -75,6 +88,23 @@
 
 // --- Status LED: on while homed and running ---
 #define STATUS_LED     2
+
+// --- Raspberry Pi (Simulink mode): GPIO lines and UART2 ---
+#define PI_START_PIN       4    // start pulse in: home, then run Simulink
+#define PI_STOP_PIN        5    // stop pulse in (strapping pin: keep the pull-down)
+#define HOMING_DONE_PIN   18    // out: HIGH while a Simulink run is open
+#define PI_RX_PIN         16
+#define PI_TX_PIN         17
+#define PI_BAUD       921600
+// Measurement packet flags (pi_link.ino; same values in picontrol/pilink.py)
+#define PI_FLAG_READY     0x01  // a Simulink run is open; commands are applied
+#define PI_FLAG_HOMED     0x02  // HOMING_DONE_PIN is HIGH
+#define PI_FLAG_SIMULINK  0x04  // Simulink is the selected experiment
+#define PI_U_MAX_V        5.0f  // |u| above this = corrupted packet, dropped
+// Simulink run timing (exp_simulink.ino)
+#define SIM_TIMEOUT_MS         50     // no command for this long ends the run
+#define SIM_FIRST_TIMEOUT_MS   30000  // no first command within this ends the run
+#define SIM_IDLE_TX_MS         100    // measurement period while waiting for the first command
 
 // --- Encoder sampling: one control step per sample (500 Hz) ---
 #define SAMPLE_US     2000
@@ -484,7 +514,8 @@ void setup() {
   loadFriction();           // measured friction compensation, if saved
 
   pinMode(STATUS_LED, OUTPUT);
-  readyLed(false);
+  pinMode(HOMING_DONE_PIN, OUTPUT);
+  readyLed(false);            // also drives the Pi ready line LOW
 
   // Now attach LEDC PWM (25kHz, 8-bit, above audible range)
   ledcAttach(RPWM_PIN, 25000, 8);
@@ -498,6 +529,13 @@ void setup() {
   pinMode(STOP_BTN,     INPUT_PULLUP);
   pinMode(LEFT_LIMIT,   INPUT_PULLUP);
   pinMode(RIGHT_LIMIT,  INPUT_PULLUP);
+  pinMode(PI_START_PIN, INPUT_PULLDOWN);   // Pi drives HIGH for a start pulse
+  pinMode(PI_STOP_PIN,  INPUT_PULLDOWN);   // Pi drives HIGH for a stop pulse
+
+  // UART2 to the Pi (Simulink mode). 1 KB RX buffer: commands are drained
+  // every loop() pass, and stale bytes are flushed when a Simulink run opens.
+  Serial2.setRxBufferSize(1024);
+  Serial2.begin(PI_BAUD, SERIAL_8N1, PI_RX_PIN, PI_TX_PIN);
 
   WiFi.mode(WIFI_OFF);
 
@@ -510,7 +548,7 @@ void setup() {
   lastSampleTickUs = micros();
   readEncoders();
 
-  Serial.println("Ready. Waiting for START (button or \"home\") to home...");
+  Serial.println("Ready. Waiting for START (button, \"home\" or Pi start pulse) to home...");
 
   // --- Wait for start trigger (button or serial) ---
   while (!startTriggered()) {
@@ -518,8 +556,10 @@ void setup() {
     pollSerial();
     delay(10);
   }
-  Serial.println(serialStart ? "START from serial" : "START from button");
+  bool fromPi = piStartHigh();
+  Serial.println(fromPi ? "START from Pi" : serialStart ? "START from serial" : "START from button");
   delay(200);  // debounce
+  if (fromPi) selectSimulink();   // a Pi start pulse always runs Simulink
 
   runHoming();
 }
@@ -530,6 +570,7 @@ void setup() {
 void loop() {
   readEncoders();
   pollSerial();
+  simService();   // Pi commands: applied and answered at once (Simulink runs only)
 
   // --- Hardware safety: limit switches stop the motor ---
   // Must read pressed for LIMIT_CONFIRM_MS: hard motor reversals put noise
@@ -563,7 +604,9 @@ void loop() {
   if (!systemEnabled) {
     stopMotor();
     if (startTriggered()) {
+      bool fromPi = piStartHigh();
       delay(200);  // debounce
+      if (fromPi) selectSimulink();   // a Pi start pulse always runs Simulink
       autoRehomes = 0;   // a manual START gives a fresh retry budget
       runHoming();
     } else {
