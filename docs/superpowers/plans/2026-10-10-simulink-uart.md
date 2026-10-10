@@ -1376,10 +1376,12 @@ Ask the user to run these steps in order. Claude reads the newest
     `run end done` (SwingBal: STOP after it balances).
 - [ ] **Step 2: Lockstep at u = 0.**
   - Console: `exp select Simulink`, then Run.
-  - On the Pi: `python3 uart_link_check.py --seconds 60`.
+  - On the Pi: `python3 uart_link_check.py --seconds 60` (paced at 1 kHz
+    like a model; add `--rate 0` once to see the link's top speed).
   - Expected script output:
-    - `Ended: time up`;
-    - loop rate about 1000 Hz or higher;
+    - `Ended: time up`, `missed replies 0` (a few are tolerated; each is
+      one lost packet, also counted in `result pi_drops`);
+    - loop rate 1000 Hz;
     - median round trip under 0.5 ms;
     - `Bad checksums 0`;
     - last cart count near 0, pendulum near 0 (hanging).
@@ -1395,12 +1397,13 @@ Ask the user to run these steps in order. Claude reads the newest
     `run start Simulink`, then `run end stop` (the script's stop pulse).
   - The console picker shows Simulink.
 - [ ] **Step 4: Stale bytes** (review focus 3).
-  - While the ESP32 is idle, run `python3 uart_link_check.py --seconds 2`.
-    It waits for ready; press Ctrl-C after a few seconds.
-  - Then start a Simulink run from the console and run
+  - Console: select Simulink and press Run. While it homes, run
+    `python3 uart_link_check.py --blast --seconds 20` on the Pi. It writes
+    0.8 V commands without waiting and should finish during the hanging
+    reference.
+  - Expected: the cart does not move after homing; `>> SIMWAIT`, and the
+    `D` lines show `u` = 0.000 until a real check runs:
     `python3 uart_link_check.py --seconds 5 --u-amp 0.5`.
-  - Expected: the cart only moves once the second script runs, and the
-    first `D` line `u` values are 0 until then.
 - [ ] **Step 5: Moving and garbled commands** (review focus 2).
   - `python3 uart_link_check.py --seconds 10 --u-amp 0.8 --garble 50`.
   - Expected: the cart shuttles both ways, `D` lines show `u` = ±0.800, the
@@ -1421,6 +1424,10 @@ Ask the user to run these steps in order. Claude reads the newest
     `python3 -c "import lgpio,time; h=lgpio.gpiochip_open(15); lgpio.gpio_claim_output(h,20,0); lgpio.gpio_write(h,20,1); time.sleep(0.2); lgpio.gpio_write(h,20,0)"`
     while the cart homes. Expected: `STOP during homing — aborted.`
   - The STOP button during `SIMWAIT`. Expected: `run end stop`.
+  - A Pi stop pulse right after centring (during the 0.3 s settle, before
+    `Hanging reference`): the same one-liner, sent the moment the cart stops
+    at the centre. Expected: the run ends `stop` (the pulse is latched),
+    not a 30 s `timeout`.
   - On the Pi, `pinctrl get 13` (or `gpioget`) reads LOW after each stop.
 - [ ] **Step 8: The daemon without the DAC.**
   - Copy `picontrol/dac_daemon.py` to the Pi and start it.

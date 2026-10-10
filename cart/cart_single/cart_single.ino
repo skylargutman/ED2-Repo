@@ -101,6 +101,8 @@
 #define PI_FLAG_HOMED     0x02  // HOMING_DONE_PIN is HIGH
 #define PI_FLAG_SIMULINK  0x04  // Simulink is the selected experiment
 #define PI_U_MAX_V        5.0f  // |u| above this = corrupted packet, dropped
+#define PI_PACKET_MAX_US   500   // a command not complete this long after its header lost a byte
+#define PI_PULSE_CONFIRM_US 5000 // Pi start/stop pulse must stay HIGH this long (noise spikes don't count)
 // Simulink run timing (exp_simulink.ino)
 #define SIM_TIMEOUT_MS         50     // no command for this long ends the run
 #define SIM_FIRST_TIMEOUT_MS   30000  // no first command within this ends the run
@@ -529,8 +531,7 @@ void setup() {
   pinMode(STOP_BTN,     INPUT_PULLUP);
   pinMode(LEFT_LIMIT,   INPUT_PULLUP);
   pinMode(RIGHT_LIMIT,  INPUT_PULLUP);
-  pinMode(PI_START_PIN, INPUT_PULLDOWN);   // Pi drives HIGH for a start pulse
-  pinMode(PI_STOP_PIN,  INPUT_PULLDOWN);   // Pi drives HIGH for a stop pulse
+  piLinesBegin();   // Pi start/stop pulse inputs (stop pulse caught by an interrupt)
 
   // UART2 to the Pi (Simulink mode). 1 KB RX buffer: commands are drained
   // every loop() pass, and stale bytes are flushed when a Simulink run opens.
@@ -596,6 +597,7 @@ void loop() {
     Serial.println("STOP triggered — motor stopped. Press START to re-home.");
     endRun("stop");
     serialStop = false;
+    piStopClear();
     delay(200);
     return;
   }

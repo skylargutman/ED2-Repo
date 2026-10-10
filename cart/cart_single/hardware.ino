@@ -49,7 +49,47 @@ bool limitBehind(Dir d) { return d == DIR_LEFT ? rightLimitHit() : leftLimitHit(
 // =============================================================================
 // Trigger helpers — unify button, USB serial and Pi GPIO inputs
 // =============================================================================
-bool piStartHigh() { return digitalRead(PI_START_PIN) == HIGH; }
+// Pi start pulse (200 ms): must still be HIGH PI_PULSE_CONFIRM_US later, so a
+// noise spike on the line can't start homing. Only called while idle.
+bool piStartHigh() {
+  if (digitalRead(PI_START_PIN) != HIGH) return false;
+  delayMicroseconds(PI_PULSE_CONFIRM_US);
+  return digitalRead(PI_START_PIN) == HIGH;
+}
+
+// Pi stop pulse (200 ms): caught by an interrupt, so a pulse that falls inside
+// a blocking delay (homing settle, debounce) still stops the run, and counted
+// only if it stayed HIGH PI_PULSE_CONFIRM_US, so a motor-noise spike doesn't.
+// The latch is cleared where serialStop is (loop's STOP branch, runHoming).
+volatile uint32_t piStopRiseUs  = 0;
+volatile bool     piStopHigh    = false;   // line HIGH since piStopRiseUs
+volatile bool     piStopLatched = false;   // a confirmed pulse ended
+
+void IRAM_ATTR piStopIsr() {
+  uint32_t now = micros();
+  if (digitalRead(PI_STOP_PIN) == HIGH) {
+    piStopRiseUs = now;
+    piStopHigh   = true;
+  } else {
+    if (piStopHigh && now - piStopRiseUs >= PI_PULSE_CONFIRM_US) piStopLatched = true;
+    piStopHigh = false;
+  }
+}
+
+void piLinesBegin() {
+  pinMode(PI_START_PIN, INPUT_PULLDOWN);   // Pi drives HIGH for a start pulse
+  pinMode(PI_STOP_PIN,  INPUT_PULLDOWN);   // Pi drives HIGH for a stop pulse
+  attachInterrupt(digitalPinToInterrupt(PI_STOP_PIN), piStopIsr, CHANGE);
+}
+
+// A confirmed stop pulse: one that ended, or one still HIGH long enough
+bool piStopSeen() {
+  if (piStopLatched) return true;
+  uint32_t rise = piStopRiseUs;
+  return piStopHigh && digitalRead(PI_STOP_PIN) == HIGH && micros() - rise >= PI_PULSE_CONFIRM_US;
+}
+
+void piStopClear() { piStopLatched = false; }
 
 bool startTriggered() {
   return (digitalRead(START_BTN) == LOW) || serialStart || piStartHigh();
@@ -59,7 +99,7 @@ bool stopTriggered() {
   // STOP_BTN is normally closed wired to GND:
   //   resting = closed = LOW = not stopped
   //   pressed = open   = HIGH (pulled up) = stopped
-  return (digitalRead(STOP_BTN) == HIGH) || serialStop || digitalRead(PI_STOP_PIN) == HIGH;
+  return (digitalRead(STOP_BTN) == HIGH) || serialStop || piStopSeen();
 }
 
 // =============================================================================
@@ -391,6 +431,7 @@ void runHoming() {
   homingActive = true;
   serialStart  = false;
   serialStop   = false;
+  piStopClear();
   runHomingSteps();
   homingActive = false;
 }

@@ -15,8 +15,9 @@
 // =============================================================================
 uint8_t  plBuf[4];
 int      plState    = 0;    // 0: want A5, 1: want 5A, 2..5: next data byte index + 2
+uint32_t plStartUs  = 0;    // micros() when the current packet's header started
 uint32_t plCommands = 0;    // valid commands this run
-uint32_t plDrops    = 0;    // complete packets with an impossible u (NaN, inf, > 5 V)
+uint32_t plDrops    = 0;    // packets dropped: impossible u (NaN, inf, > 5 V) or a lost byte
 
 // Discard anything waiting (bytes from an earlier run or sent during homing)
 void piLinkReset() {
@@ -34,8 +35,19 @@ uint32_t piLinkDrops()    { return plDrops; }
 bool piLinkRead(float* u) {
   while (Serial2.available()) {
     uint8_t b = Serial2.read();
-    if (plState == 0) { if (b == 0xA5) plState = 1; continue; }
-    if (plState == 1) { plState = (b == 0x5A) ? 2 : (b == 0xA5 ? 1 : 0); continue; }
+    // A command arrives in ~65 us. A fragment older than PI_PACKET_MAX_US lost a
+    // byte: drop it, or it would swallow the next packet's header as data.
+    if (plState != 0 && micros() - plStartUs > PI_PACKET_MAX_US) { plState = 0; plDrops++; }
+    if (plState == 0) {
+      if (b == 0xA5) { plState = 1; plStartUs = micros(); }
+      continue;
+    }
+    if (plState == 1) {
+      if (b == 0x5A)      plState = 2;
+      else if (b == 0xA5) plStartUs = micros();   // stays 1: this may be the real header
+      else                plState = 0;
+      continue;
+    }
     plBuf[plState - 2] = b;
     if (++plState < 6) continue;
     plState = 0;
