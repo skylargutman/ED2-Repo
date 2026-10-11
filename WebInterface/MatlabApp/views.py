@@ -173,7 +173,7 @@ def experiment_run_dynamic(request, experiment_name):
 
     # Get recent activity
     recent_commands = Command.objects.filter(experiment=experiment_name).all()[:10]
-    raspi_messages = Message.objects.all()[:10]
+    raspi_messages = Message.objects.all().filter(experiment=experiment_name).order_by('-timestamp')[:10]
 
     context = {
         'experiment_name': experiment_name,
