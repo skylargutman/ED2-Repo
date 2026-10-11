@@ -37,4 +37,4 @@ def load_experiment_files():
     return experiments_dict
 
 
-EXPERIMENTS = load_experiment_files()
+EXPERIMENTS: dict[str, Experiment] = load_experiment_files()

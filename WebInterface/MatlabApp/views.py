@@ -177,6 +177,7 @@ def experiment_run_dynamic(request, experiment_name):
 
     context = {
         'experiment_name': experiment_name,
+        'experiment_localized_name': experiment_config.name,
         'parameters': experiment_config.parameters,  # PASS PARAMETERS TO TEMPLATE
         'recent_commands': recent_commands,
         'raspi_messages': raspi_messages,
