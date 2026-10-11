@@ -3,7 +3,8 @@ from functools import wraps
 
 from django.contrib import messages as django_messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
+from django.http.response import FileResponse
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -348,6 +349,33 @@ def get_experiment_defaults(request, experiment_name):
         'experiment': experiment_name,
         'defaults': EXPERIMENTS[experiment_name]
     })
+
+
+@login_required()
+def experiment_data_download(request, experiment_name):
+    messages = Message.objects.filter(user=request.user, experiment=experiment_name).all().order_by('-timestamp')
+    if len(messages) == 0:
+        return HttpResponse("No data to download!", status=404)
+
+    # all messages should follow the same format
+    messageKeys = list(messages[0].message.keys())
+    keys = ["timestamp"] + messageKeys
+    allValues = []
+
+    for msg in messages:
+        msgJson = msg.message
+        value = [str(msg.timestamp.timestamp())]
+        for key in messageKeys:
+            keyValue = msgJson.get(key, "N/A")
+            value.append(str(keyValue))
+        allValues.append(",".join(value))
+
+    data = ",".join(keys) + "\n" + "\n".join(allValues)
+    headers = {
+        "Content-Disposition": "attachment; filename=\"data.csv\"",
+        "Content-Type": "text/csv",
+    }
+    return FileResponse(data, filename='data.csv', headers=headers)
 
 
 @login_required
