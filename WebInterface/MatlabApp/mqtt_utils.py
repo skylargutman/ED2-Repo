@@ -1,13 +1,14 @@
-import paho.mqtt.publish as publish
 import json
+
+import paho.mqtt.publish as publish
 
 BROKER_HOST = "127.0.0.1"
 BROKER_PORT = 1885
 TOPIC = "pendulum/cmd"
-allow_anoynmous = True
 
-def send_command(payload):
-#Send payload as either JSON or plain string to MQTT broker depending on the command
+
+def send_command(payload, user=None):
+    # Send payload as either JSON or plain string to MQTT broker depending on the command
 
     # If payload is just a string, wrap it
     if isinstance(payload, str):
@@ -15,9 +16,10 @@ def send_command(payload):
             "command": payload
         }
 
-    # Attach user info (COMMENTED OUT, NO USER AUTH ON PI SIDE)
-    #payload["user_id"] = user.id
-    #payload["username"] = user.username
+    # Attach user info
+    if user:
+        payload["user_id"] = user.id
+        payload["username"] = user.username
 
     try:
         publish.single(

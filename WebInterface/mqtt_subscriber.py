@@ -21,11 +21,13 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'EGNSite.settings')
 
 # start django
 import django
+
 django.setup()
 
-# MQTT and Message import
+# MQTT and MatlabApp imports
 import paho.mqtt.client as mqtt
 from MatlabApp.models import Message, EquipmentStatus
+from MatlabApp.instruments import Instrument
 
 # Channel layer for WebSocket push
 import json
@@ -39,10 +41,13 @@ channel_layer = get_channel_layer()
 # --- Configuration -----------------------------------------------------------
 # This service always runs on the same host as the broker, so loopback is the
 # right default; deploy/.env can override.
+INSTRUMENT: str = os.environ.get("INSTRUMENT_NAME", Instrument.PENDULUM.value)
 BROKER = os.environ.get('MQTT_BROKER_HOST', '127.0.0.1')
 PORT = int(os.environ.get('MQTT_BROKER_PORT', 1885))
-TOPIC_TELEMETRY = os.environ.get('MQTT_TELEMETRY_TOPIC', 'raspi/to_django')
-TOPIC_STATUS = os.environ.get('MQTT_STATUS_TOPIC', 'pendulum/status')
+
+TOPIC_TELEMETRY = os.environ.get('MQTT_TELEMETRY_TOPIC', f'{INSTRUMENT.lower()}/telemtry')
+TOPIC_STATUS = os.environ.get('MQTT_STATUS_TOPIC', f'{INSTRUMENT.lower()}/status')
+TOPIC_CMD = os.environ.get('MQTT_COMMAND_TOPIC', f'{INSTRUMENT.lower()}/cmd')
 
 GROUP = 'sensor_data'
 MAX_MESSAGES = 5000
@@ -53,6 +58,10 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger(__name__)
+
+# Vars
+active_experiment = ""
+active_user = -1
 
 
 # --- Connection callbacks ----------------------------------------------------
@@ -65,8 +74,8 @@ def on_connect(client, userdata, flags, reason_code, properties):
         log.info(f"Connected to MQTT broker at {BROKER}:{PORT}")
         # Subscribing inside on_connect (rather than after connect()) means
         # subscriptions are automatically restored after a reconnect.
-        client.subscribe([(TOPIC_TELEMETRY, 0), (TOPIC_STATUS, 1)])
-        log.info(f"Subscribed to '{TOPIC_TELEMETRY}' and '{TOPIC_STATUS}'")
+        client.subscribe([(TOPIC_TELEMETRY, 0), (TOPIC_STATUS, 1), (TOPIC_CMD, 2)])
+        log.info(f"Subscribed to: '{TOPIC_TELEMETRY}' (telemetry), '{TOPIC_STATUS}' (status), and '{TOPIC_CMD}' (cmd)")
         log.info("Waiting for messages from the Pi...")
     else:
         log.error(f"Connection failed: {reason_code}")
@@ -122,12 +131,19 @@ def handle_telemetry(message_text):
     connection.close()
 
     try:
-        Message.objects.create(message=message_text)
+        data = json.loads(message_text)
+    except json.JSONDecodeError as ex:
+        log.error(f"Received telemetry message with invalid JSON: {message_text} - {ex}")
+        data = {"raw": message_text}
+
+    try:
+        Message.objects.create(instrument=INSTRUMENT, experiment=active_experiment, user=active_user, message=data)
 
         # Keep only the most recent MAX_MESSAGES readings
         count = Message.objects.count()
         if count > MAX_MESSAGES:
-            oldest_ids = Message.objects.order_by('timestamp').values_list(
+            oldest_ids = Message.objects.filter(instrument=INSTRUMENT, experiment=active_experiment) \
+                .order_by('timestamp').values_list(
                 'id', flat=True)[:count - MAX_MESSAGES]
             Message.objects.filter(id__in=list(oldest_ids)).delete()
 
@@ -160,7 +176,7 @@ def handle_status(message_text):
 
     # Update Equipment Status
     EquipmentStatus.objects.update_or_create(
-        name="pendulum",
+        name=INSTRUMENT,
         value=parsed.get('status', ""),
         extraValue=parsed.get('detail', "")
     )
@@ -179,14 +195,26 @@ def handle_status(message_text):
         log.error(f"Error pushing status to WebSocket: {e}")
 
 
+def handle_command(message_text):
+    global active_experiment, active_user
+    data = json.loads(message_text)
+
+    active_experiment = data["experiment"]
+    active_user = data.get("user_id", -1)
+
+
 def on_message(client, userdata, msg):
     message_text = msg.payload.decode(errors='replace')
     log.info(f"Received on '{msg.topic}': {message_text}")
 
     if msg.topic == TOPIC_STATUS:
         handle_status(message_text)
-    else:
+    elif msg.topic == TOPIC_TELEMETRY:
         handle_telemetry(message_text)
+    elif msg.topic == TOPIC_CMD:
+        handle_command(message_text)
+    else:
+        log.error(f"Received MQTT message from unknown topic, '{msg.topic}': {message_text}.")
 
 
 def main():

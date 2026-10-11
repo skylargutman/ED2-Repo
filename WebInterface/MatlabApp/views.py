@@ -275,7 +275,7 @@ def send_experiment_command(request, experiment_name):
             command=command,
         )
 
-        success = send_command(payload)
+        success = send_command(payload, request.user)
 
         cmd_obj.success = success
         cmd_obj.save()
