@@ -1403,16 +1403,18 @@ Ask the user to run these steps in order. Claude reads the newest
     reference.
   - Expected: the cart does not move after homing; `>> SIMWAIT`, and the
     `D` lines show `u` = 0.000 until a real check runs:
-    `python3 uart_link_check.py --seconds 5 --u-amp 0.5`.
+    `python3 uart_link_check.py --seconds 5 --u-amp 0.3 --half-period 0.2`.
 - [ ] **Step 5: Moving and garbled commands** (review focus 2).
-  - `python3 uart_link_check.py --seconds 10 --u-amp 0.8 --garble 50`.
+  - `python3 uart_link_check.py --seconds 10 --u-amp 0.3 --half-period 0.2 --garble 50`.
+    (Measured 2026-10-19: at 0.5 V the cart reaches 1 m/s in 0.35 s and hits the
+    soft limit inside one 0.5 s half-period, so keep the amplitude and half-period small.)
   - Expected: the cart shuttles both ways, `D` lines show `u` = ±0.800, the
     script ends `time up`, and the log shows `result pi_drops` equal to
     about commands / 50, with the run not stopped by the drops.
   - If the cart drifts into the soft limit instead (`run end soft-limit`),
-    that is the safety working. Repeat with `--u-amp 0.5`.
+    that is the safety working. Repeat with `--u-amp 0.2`.
 - [ ] **Step 6: Model killed** (review focus 1).
-  - Run `python3 uart_link_check.py --seconds 30 --u-amp 0.5` and press
+  - Run `python3 uart_link_check.py --seconds 30 --u-amp 0.3 --half-period 0.2` and press
     Ctrl-C after about 5 s.
   - Expected log: `Simulink: no command for 5x ms, stopping.`, then
     `run end timeout`. The cart stops, and the `D` lines after the last

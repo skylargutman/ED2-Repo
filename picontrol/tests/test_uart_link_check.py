@@ -154,3 +154,18 @@ def test_default_port_is_the_gpio14_15_uart_on_a_pi5(monkeypatch):
     except StopHere:
         pass
     assert opened["port"] == "/dev/ttyAMA0"
+
+
+def test_half_period_option_sets_the_square_wave(monkeypatch):
+    import sys as _sys
+    import types
+
+    esp = FakeEsp(idle=encode_measurement(0, 0, READY))
+    esp.reset_input_buffer = lambda: None
+    monkeypatch.setitem(_sys.modules, "serial", types.SimpleNamespace(Serial=lambda *a, **k: esp))
+    import uart_link_check
+    uart_link_check.main(["--seconds", "0.3", "--u-amp", "0.25", "--half-period", "0.1", "--rate", "200"])
+    sent = [u for u in esp.commands if not math.isnan(u)]
+    assert {0.25, -0.25} <= set(sent)
+    flips = sum(1 for a, b in zip(sent, sent[1:]) if a != b)
+    assert 2 <= flips <= 3          # 0.3 s with 0.1 s halves

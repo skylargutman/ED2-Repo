@@ -131,6 +131,8 @@ def main(argv=None):
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--seconds", type=float, default=10.0, help="lockstep duration")
     ap.add_argument("--u-amp", type=float, default=0.0, help="square wave amplitude in volts (0 = u stays 0)")
+    ap.add_argument("--half-period", type=float, default=0.5,
+                    help="seconds each way of the square wave (the cart reaches ~1 m/s in 0.35 s at 0.5 V)")
     ap.add_argument("--garble", type=int, default=0, metavar="N", help="send NaN as every Nth command")
     ap.add_argument("--rate", type=float, default=1000.0, help="commands per second, like the model step (0 = free-run)")
     ap.add_argument("--blast", action="store_true",
@@ -165,7 +167,7 @@ def main(argv=None):
         return 1
     print(f"Ready: cart {m.cart}, pend {m.pend}, flags 0x{m.flags:02x}")
 
-    u_of_t = square_wave(args.u_amp) if args.u_amp else (lambda t: 0.0)
+    u_of_t = square_wave(args.u_amp, args.half_period) if args.u_amp else (lambda t: 0.0)
     stats = lockstep(ser, parser, args.seconds, u_of_t, args.garble, rate_hz=args.rate)
     if handle is not None:
         _pulse(handle, GPIO_STOP)
