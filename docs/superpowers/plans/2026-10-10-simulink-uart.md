@@ -41,7 +41,7 @@ Background:
 
 - Commit locally after each task. **Push only when the user asks.**
 - **UART2:** RX = GPIO 16 (from Pi GPIO14/pin 8), TX = GPIO 17 (to Pi
-  GPIO15/pin 10), **921600 baud, 8N1**. Pi device: `/dev/serial0`.
+  GPIO15/pin 10), **921600 baud, 8N1**. Pi device: `/dev/ttyAMA0`.
 - **Pi lines:**
   - GPIO 4 = start pulse in (`INPUT_PULLDOWN`, active HIGH, from Pi GPIO16);
   - GPIO 5 = stop pulse in (`INPUT_PULLDOWN`, active HIGH, from Pi GPIO20;
@@ -233,7 +233,7 @@ Expected: collection error, `ModuleNotFoundError: No module named 'pilink'`.
 """Packets of the Pi <-> ESP32 UART link used in Simulink mode.
 
 Wiring: Pi GPIO14 (TX, pin 8) -> ESP32 GPIO16, Pi GPIO15 (RX, pin 10) <- ESP32
-GPIO17, 921600 baud 8N1, /dev/serial0 on the Pi. Lockstep: every command the Pi
+GPIO17, 921600 baud 8N1, /dev/ttyAMA0 on the Pi. Lockstep: every command the Pi
 sends is answered with one measurement.
 
   Pi -> ESP32 command, 6 bytes:      A5 5A  u (float32 LE, volts, + = drive right)
@@ -556,7 +556,7 @@ def _pulse(handle, pin):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", default="/dev/serial0")
+    ap.add_argument("--port", default="/dev/ttyAMA0")
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--seconds", type=float, default=10.0, help="lockstep duration")
     ap.add_argument("--u-amp", type=float, default=0.0, help="square wave amplitude in volts (0 = u stays 0)")
@@ -726,7 +726,7 @@ with:
 #   GPIO 16  (Pin 36) → ESP32 GPIO  4 : start pulse (the ESP32 homes and opens a Simulink run)
 #   GPIO 20  (Pin 38) → ESP32 GPIO  5 : stop pulse
 #   GPIO 13  (Pin 33) ← ESP32 GPIO 18 : HIGH while a Simulink run is open
-#   The motor command goes to the ESP32 over UART (/dev/serial0), sent by the
+#   The motor command goes to the ESP32 over UART (/dev/ttyAMA0), sent by the
 #   Simulink model. The MCP4725 DAC is no longer fitted: DAC writes are skipped
 #   when it is absent (dac_probe at startup).
 ```
@@ -1473,7 +1473,7 @@ homes, measures, drives the motor and keeps every safety stop. Design:
 | 38 | GPIO20 | 5 | stop pulse |
 | 33 | GPIO13 | 18 | HIGH while a Simulink run is open |
 
-UART2: 921600 baud 8N1, `/dev/serial0` on the Pi (raspi-config: serial login
+UART2: 921600 baud 8N1, `/dev/ttyAMA0` on the Pi (raspi-config: serial login
 shell off, serial hardware on). Lockstep: each command is answered at once
 with one measurement.
 
@@ -1505,7 +1505,7 @@ Directly under the heading `## \`dac_daemon.py\` — the main program`, add:
 
 ```markdown
 > **Single-board rig (2026-10):** there is no MCP4725 any more. The Simulink
-> model sends the motor command to the ESP32 over `/dev/serial0` (see
+> model sends the motor command to the ESP32 over `/dev/ttyAMA0` (see
 > `docs/esp32.md`, "Single board, Simulink on the Pi"). The daemon probes the
 > DAC once at startup and skips DAC writes when it is absent; the start/stop
 > pulses, the GPIO 13 wait and the model launch are unchanged. GPIO 6
@@ -1541,7 +1541,7 @@ Part C waits until this PC has **Simulink and the Simulink Support Package
 for Raspberry Pi Hardware**. Today MATLAB R2026b is installed without either.
 The script has to be written against the installed block library: the exact
 Serial Receive/Transmit block paths and parameter names, and whether
-921600 baud can be set on `/dev/serial0`. Writing it now would mean guessing
+921600 baud can be set on `/dev/ttyAMA0`. Writing it now would mean guessing
 those names. Once the installs are done, write
 `docs/superpowers/plans/YYYY-MM-DD-simulink-uart-models.md` from spec part C:
 `make_uart_models.m`, `_UART` copies, the 1968 counts/rev gain, R2025b

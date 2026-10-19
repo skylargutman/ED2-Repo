@@ -131,3 +131,26 @@ def test_blast_writes_commands_without_reading():
     n = blast(esp, 0.05, 0.75, rate_hz=1000)   # 0.75 is exact in float32
     assert n == len(esp.commands) > 10
     assert set(esp.commands) == {0.75}
+
+
+def test_default_port_is_the_gpio14_15_uart_on_a_pi5(monkeypatch):
+    # On the Pi 5, /dev/serial0 is the debug connector (ttyAMA10); pins 8/10 are ttyAMA0
+    import sys as _sys
+    import types
+
+    opened = {}
+
+    class StopHere(Exception):
+        pass
+
+    def fake_serial(port, baud, timeout):
+        opened["port"] = port
+        raise StopHere
+
+    monkeypatch.setitem(_sys.modules, "serial", types.SimpleNamespace(Serial=fake_serial))
+    import uart_link_check
+    try:
+        uart_link_check.main([])
+    except StopHere:
+        pass
+    assert opened["port"] == "/dev/ttyAMA0"

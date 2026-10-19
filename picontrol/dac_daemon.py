@@ -19,7 +19,7 @@
 #   GPIO 16  (Pin 36) → ESP32 GPIO  4 : start pulse (the ESP32 homes and opens a Simulink run)
 #   GPIO 20  (Pin 38) → ESP32 GPIO  5 : stop pulse
 #   GPIO 13  (Pin 33) ← ESP32 GPIO 18 : HIGH while a Simulink run is open
-#   The motor command goes to the ESP32 over UART (/dev/serial0), sent by the
+#   The motor command goes to the ESP32 over UART (/dev/ttyAMA0), sent by the
 #   Simulink model. The MCP4725 DAC is no longer fitted: DAC writes are skipped
 #   when it is absent (dac_probe at startup).
 #

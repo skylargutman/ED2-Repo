@@ -60,7 +60,9 @@ does all the control.
   LOW at boot it is safe, but the Pi must not drive it HIGH while the ESP32
   resets.
 - Pi setup: in `raspi-config`, turn the serial login shell **off** and the
-  serial hardware **on**, then use `/dev/serial0`.
+  serial hardware **on**, then use `/dev/ttyAMA0` (with `dtparam=uart0=on` in
+  `/boot/firmware/config.txt`). **Not `/dev/serial0`:** on the Pi 5 it points
+  to `ttyAMA10`, the 3-pin debug connector (found on the rig 2026-10-19).
 - The old system-ready line (Pi GPIO 6 to ESP32 #1 GPIO 33) is **not
   connected**. GPIO 33 is now the right limit switch.
 
@@ -245,7 +247,7 @@ The models are
 
 The script `MATLAB/.../make_uart_models.m`:
 - builds two reusable subsystems:
-  - **UART Receive:** Raspberry Pi Serial Receive on `/dev/serial0` at
+  - **UART Receive:** Raspberry Pi Serial Receive on `/dev/ttyAMA0` at
     921600, header `A5 5A`, 10 data bytes into the existing `unpack_spi`;
   - **UART Send:** pack `u` as a single, then Serial Transmit with the
     header.
@@ -310,7 +312,7 @@ MATLAB installs.
   getting through, add a checksum byte (7-byte command) in both
   `pilink.py` and the Simulink pack block.
 - **Simulink serial and 921600 baud:** if the Pi support package can't
-  set 921600 on `/dev/serial0`, use 460800 (round trip about 0.4 ms). Below
+  set 921600 on `/dev/ttyAMA0`, use 460800 (round trip about 0.4 ms). Below
   that a 1 ms step is too tight. The fallback is a 2 ms step in the `_UART`
   copies, but only for models whose discrete blocks tolerate the change.
   Check this in part C.

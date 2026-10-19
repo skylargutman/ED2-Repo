@@ -127,7 +127,7 @@ def _pulse(handle, pin):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", default="/dev/serial0")
+    ap.add_argument("--port", default="/dev/ttyAMA0")
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--seconds", type=float, default=10.0, help="lockstep duration")
     ap.add_argument("--u-amp", type=float, default=0.0, help="square wave amplitude in volts (0 = u stays 0)")

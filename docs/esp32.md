@@ -400,7 +400,8 @@ homes, measures, drives the motor and keeps every safety stop. Design:
 | 38 | GPIO20 | 5 | stop pulse |
 | 33 | GPIO13 | 18 | HIGH while a Simulink run is open |
 
-UART2: 921600 baud 8N1, `/dev/serial0` on the Pi (raspi-config: serial login
+UART2: 921600 baud 8N1, `/dev/ttyAMA0` on the Pi (not `/dev/serial0`: on the Pi 5
+that is the debug connector, `ttyAMA10`; needs `dtparam=uart0=on`) (raspi-config: serial login
 shell off, serial hardware on). Lockstep: each command is answered at once
 with one measurement.
 
@@ -420,6 +421,11 @@ with one measurement.
 - **Check without Simulink:** `picontrol/uart_link_check.py` (see its
   `--help`); packet code and tests in `picontrol/pilink.py`,
   `picontrol/tests/`.
+
+Measured 2026-10-19 (`uart_link_check.py --port /dev/ttyAMA0 --seconds 20`, paced at
+1 kHz): 20001 commands, 20001 replies, 0 missed, 0 bad checksums, `result pi_drops 0`;
+round trip median 0.51 ms, max 4.7 ms. With the checker stopped, the ESP32 ended the run
+52 ms after the last command (`run end timeout`).
 
 ## Handoff summary
 

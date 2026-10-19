@@ -78,7 +78,7 @@ up before connecting.
 ## `dac_daemon.py` — the main program
 
 > **Single-board rig (2026-10):** there is no MCP4725 any more. The Simulink
-> model sends the motor command to the ESP32 over `/dev/serial0` (see
+> model sends the motor command to the ESP32 over `/dev/ttyAMA0` (see
 > `docs/esp32.md`, "Single board, Simulink on the Pi"). The daemon probes the
 > DAC once at startup and skips DAC writes when it is absent; the start/stop
 > pulses, the GPIO 13 wait and the model launch are unchanged. GPIO 6
