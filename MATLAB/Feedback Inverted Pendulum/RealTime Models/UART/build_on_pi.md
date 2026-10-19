@@ -26,6 +26,16 @@ generate the code here and compile it on the Pi:
    ```
    The result is `$SD/SwingHoldPendulumPiMod2.elf`.
 
+`build_pi.sh` does steps 2-3 from this PC through sciencelabtoyou.com, including the patch below.
+
+**Patch on every build:** the generated `ert_main.c` computes `stopRequested` but its base-rate loop only
+tests `runModel`, so Stop blocks (the 40 s stop, "Stop if cart moves too far") never end the program.
+`build_pi.sh` adds `if (stopRequested) runModel = 0;` after that line. Verified 2026-10-19: the model exits
+after 40.02 s.
+
+**MQTT payload:** the R2026b Blockset publishes a text message as decimal byte codes ("123 34 ...").
+The website decodes them (`WebInterface/telemetry_payload.py`).
+
 Notes:
 - `MW_MQTT_Parameters.h` is normally written by the Blockset's own remote build.
   Everything in it is optional. The broker comes from `-D` flags in the makefile,
