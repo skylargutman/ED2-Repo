@@ -37,7 +37,7 @@
 // Changes in 11.2 (Simulink on the Pi; design in
 // docs/superpowers/specs/2026-10-10-simulink-uart-design.md):
 //   - Experiment "Simulink": the Pi sends the motor command (volts, float32)
-//     over UART2 (RX 16 / TX 17, 921600) and gets encoder counts back in
+//     over UART2 (RX 16 / TX 17, 230400) and gets encoder counts back in
 //     lockstep (pi_link.ino, exp_simulink.ino).
 //   - Pi lines back: start pulse in (GPIO 4, selects Simulink), stop pulse
 //     in (GPIO 5), ready out (GPIO 18, HIGH while a Simulink run is open).
@@ -95,7 +95,7 @@
 #define HOMING_DONE_PIN   18    // out: HIGH while a Simulink run is open
 #define PI_RX_PIN         16
 #define PI_TX_PIN         17
-#define PI_BAUD       921600
+#define PI_BAUD       230400   // the Raspberry Pi Blockset Serial Read/Write max (921600 not offered); 18-byte round trip ~0.8 ms
 // Measurement packet flags (pi_link.ino; same values in picontrol/pilink.py)
 #define PI_FLAG_READY     0x01  // a Simulink run is open; commands are applied
 #define PI_FLAG_HOMED     0x02  // HOMING_DONE_PIN is HIGH

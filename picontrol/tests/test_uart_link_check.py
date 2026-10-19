@@ -144,7 +144,7 @@ def test_default_port_is_the_gpio14_15_uart_on_a_pi5(monkeypatch):
         pass
 
     def fake_serial(port, baud, timeout):
-        opened["port"] = port
+        opened["port"], opened["baud"] = port, baud
         raise StopHere
 
     monkeypatch.setitem(_sys.modules, "serial", types.SimpleNamespace(Serial=fake_serial))
@@ -154,6 +154,8 @@ def test_default_port_is_the_gpio14_15_uart_on_a_pi5(monkeypatch):
     except StopHere:
         pass
     assert opened["port"] == "/dev/ttyAMA0"
+    # the Raspberry Pi Blockset Serial blocks top out at 230400, so the link runs there
+    assert opened["baud"] == 230400
 
 
 def test_half_period_option_sets_the_square_wave(monkeypatch):

@@ -1,5 +1,5 @@
 // =============================================================================
-// UART link to the Raspberry Pi (Simulink mode), UART2: RX 16, TX 17, 921600.
+// UART link to the Raspberry Pi (Simulink mode), UART2: RX 16, TX 17, 230400 (PI_BAUD).
 // Byte handling only; exp_simulink.ino decides what to do with a command.
 //   Pi -> ESP32 command, 6 bytes:      A5 5A  u (float32 LE, volts, + = right)
 //     u = 0.5   -> A5 5A 00 00 00 3F

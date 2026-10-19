@@ -104,7 +104,11 @@ does all the control.
 
 ## Packets (UART2)
 
-**Baud rate: 921600, 8N1.** A round trip is 18 bytes, about 0.2 ms, which
+> **Changed 2026-10-19: 230400 baud.** The Raspberry Pi Blockset (R2026b) Serial
+> Read/Write blocks offer 230400 at most, so `PI_BAUD` follows. A round trip is
+> then about 0.8 ms inside the 1 ms step; measure it with `uart_link_check.py`.
+
+~~**Baud rate: 921600, 8N1.**~~ A round trip is 18 bytes, about 0.2 ms, which
 leaves most of the models' 1 ms step for Linux scheduling jitter. At 230400
 it would take 0.8 ms, too tight at 1 kHz. The baud rate is one `#define` on
 the ESP32 and one setting in Simulink.
@@ -165,7 +169,7 @@ The ESP32 receiver:
 - **`cart_single.ino`:**
   - pins `PI_START_PIN 4`, `PI_STOP_PIN 5`, `HOMING_DONE_PIN 18`,
     `PI_RX_PIN 16`, `PI_TX_PIN 17`;
-  - `PI_BAUD 921600`;
+  - `PI_BAUD 230400` (was 921600; see the baud note above);
   - `SIM_TIMEOUT_MS 50`, `SIM_FIRST_TIMEOUT_MS 30000`, `SIM_IDLE_TX_MS 100`;
   - `Serial2.begin` in `setup()`;
   - the version goes to 11.2.

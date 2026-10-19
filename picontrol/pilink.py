@@ -1,7 +1,7 @@
 """Packets of the Pi <-> ESP32 UART link used in Simulink mode.
 
 Wiring: Pi GPIO14 (TX, pin 8) -> ESP32 GPIO16, Pi GPIO15 (RX, pin 10) <- ESP32
-GPIO17, 921600 baud 8N1, /dev/ttyAMA0 on the Pi. Lockstep: every command the Pi
+GPIO17, 230400 baud 8N1 (the Raspberry Pi Blockset Serial blocks' maximum), /dev/ttyAMA0 on the Pi. Lockstep: every command the Pi
 sends is answered with one measurement.
 
   Pi -> ESP32 command, 6 bytes:      A5 5A  u (float32 LE, volts, + = drive right)
