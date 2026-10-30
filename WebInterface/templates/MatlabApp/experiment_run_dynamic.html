@@ -300,6 +300,13 @@
 {% block extra_js %}
 <!--JS Charts-->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- experiments.js is a static file, so it can't use the url template tag; the URLs come from here -->
+<script>
+const EXPERIMENT_URLS = {
+    command: "{% url 'send_experiment_command' experiment_name %}",
+    updateParams: "{% url 'update_experiment_params' experiment_name %}",
+};
+</script>
 <script src="{% static 'js/experiments.js' %}"></script>
 
 {% endblock %}
