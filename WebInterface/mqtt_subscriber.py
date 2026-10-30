@@ -116,11 +116,10 @@ def handle_telemetry(message_text):
     # this the first reading after a quiet period raises OperationalError.
     connection.close()
 
-    try:
-        data = json.loads(message_text)
-    except json.JSONDecodeError as ex:
-        log.error(f"Received telemetry message with invalid JSON: {message_text} - {ex}")
-        data = {"raw": message_text}
+    # Decodes byte-coded payloads from R2026b models; returns {'raw': ...} if it can't parse
+    data = parse_payload(message_text)
+    if 'raw' in data:
+        log.error(f"Received telemetry message that could not be parsed: {message_text}")
 
     try:
         Message.objects.create(instrument=INSTRUMENT, experiment=active_experiment, user_id=active_user, message=data)
@@ -138,12 +137,11 @@ def handle_telemetry(message_text):
         log.error(f"Error saving to database: {e}")
 
     try:
-        payload = parse_payload(message_text)
         async_to_sync(channel_layer.group_send)(
             GROUP,
             {
                 'type': 'sensor_update',
-                'data': payload,
+                'data': data,
             },
         )
         log.info(f"Pushed sensor data to WebSocket group '{GROUP}'")

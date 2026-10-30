@@ -35,6 +35,12 @@ class TelemetrySaveTests(TestCase):
         mqtt_subscriber.handle_telemetry(TELEMETRY)
         self.assertIsNone(Message.objects.get().user)
 
+    def test_byte_coded_reading_is_saved_decoded(self):
+        # R2026b models publish '{"time": ...}' as "123 34 116 ..." (see telemetry_payload.py)
+        self.start(user_id=self.user.id)
+        mqtt_subscriber.handle_telemetry(" ".join(str(b) for b in TELEMETRY.encode()) + " ")
+        self.assertEqual(Message.objects.get().message, json.loads(TELEMETRY))
+
 
 class PageScriptTests(TestCase):
     """Pages must load JavaScript files that exist, with the URLs filled in by the template."""
