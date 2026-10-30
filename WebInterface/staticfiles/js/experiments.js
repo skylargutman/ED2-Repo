@@ -31,7 +31,7 @@ async function triggerEstop() {
             // Give instructor control first so sendCommand works
             iAmInControl = true;
             // Stop the experiment on the Pi
-            fetch('{% url "send_experiment_command" experiment_name %}', {
+            fetch(EXPERIMENT_URLS.command, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -289,7 +289,7 @@ function updateUIState() {
 function sendCommand(command, parameters = {}) {
     if (!iAmInControl) return;
 
-    fetch('{% url "send_experiment_command" experiment_name %}', {
+    fetch(EXPERIMENT_URLS.command, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -327,7 +327,7 @@ function updateParameters() {
         }
     });
     
-    fetch('{% url "update_experiment_params" experiment_name %}', {
+    fetch(EXPERIMENT_URLS.updateParams, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
