@@ -27,11 +27,11 @@ django.setup()
 # MQTT and MatlabApp imports
 import paho.mqtt.client as mqtt
 from MatlabApp.models import Message, EquipmentStatus
+from telemetry_payload import parse_payload
 from MatlabApp.instruments import Instrument
 
 # Channel layer for WebSocket push
 import json
-import re
 import logging
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -85,21 +85,7 @@ def on_disconnect(client, userdata, flags, reason_code, properties):
     log.warning(f"Disconnected from broker (reason={reason_code}) — reconnecting")
 
 
-def parse_payload(message_text):
-    # First attempt — standard JSON
-    try:
-        return json.loads(message_text)
-    except json.JSONDecodeError:
-        pass
-
-    # Second attempt — fix unquoted keys by replacing word: with "word":
-    try:
-        fixed = re.sub(r'(\{|,)\s*(\w+)\s*:', r'\1"\2":', message_text)
-        return json.loads(fixed)
-    except json.JSONDecodeError:
-        pass
-
-    return {'raw': message_text}
+# parse_payload lives in telemetry_payload.py (no Django there, so it has its own tests)
 
 
 def parse_status(payload):
