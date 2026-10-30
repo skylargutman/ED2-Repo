@@ -61,7 +61,7 @@ log = logging.getLogger(__name__)
 
 # Vars
 active_experiment = ""
-active_user = -1
+active_user = None  # id of the user who started the current run; None for runs started outside the website
 
 
 # --- Connection callbacks ----------------------------------------------------
@@ -123,7 +123,7 @@ def handle_telemetry(message_text):
         data = {"raw": message_text}
 
     try:
-        Message.objects.create(instrument=INSTRUMENT, experiment=active_experiment, user=active_user, message=data)
+        Message.objects.create(instrument=INSTRUMENT, experiment=active_experiment, user_id=active_user, message=data)
 
         # Keep only the most recent MAX_MESSAGES readings
         count = Message.objects.count()
@@ -186,7 +186,7 @@ def handle_command(message_text):
     data = json.loads(message_text)
 
     active_experiment = data["experiment"]
-    active_user = data.get("user_id", -1)
+    active_user = data.get("user_id")
 
 
 def on_message(client, userdata, msg):
