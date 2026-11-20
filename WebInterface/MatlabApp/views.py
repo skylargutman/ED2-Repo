@@ -3,7 +3,8 @@ from functools import wraps
 
 from django.contrib import messages as django_messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
+from django.http.response import FileResponse
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -88,167 +89,6 @@ def requires_control_lock(view_func):
 
 
 # Experiment configuration - default parameters for each experiment
-"""
-EXPERIMENT_DEFAULTS = {
-    'SwingHoldPendulum': {
-            'parameters': {
-                'PID_D': {
-                    'proportional': {'value': 70, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.5, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 4.0,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_D1': {
-                    'proportional': {'value': 25.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.2, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 1.5,  'editable': True, 'unit': 'kg⋅s'},
-                },
-            }
-    },
-    
-    'CartControl': {
-            'parameters': {
-                'PID_D': {
-                    'proportional': {'value': 27.8, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 50.0, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 3.9,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_D1': {
-                    'proportional': {'value': 27.8, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 50.0, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 3.9,  'editable': True, 'unit': 'kg⋅s'},
-                },
-            }
-    },
-
-    'TestCartPend1': {
-            'parameters': {
-                'kp': {'value': 27.8,'editable': True, 'unit': 'unit'},
-                'ki': {'value': 50.0, 'editable': True, 'unit': 'unit'},
-                'kd': {'value': 3.9,  'editable': True, 'unit': 'unit'},
-            }
-    },
-
-    'CraneIdent': {
-            'parameters': {
-
-        }
-    },
-
-    'CraneStab': {
-            'parameters': {
-                'PID_D' :{
-                    'proportional': {'value': 8.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.3, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 4.0,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_D1' :{
-                    'proportional': {'value': 5.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.1, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 0.2,  'editable': True, 'unit': 'kg⋅s'},
-                }
-        },
-    },
-
-    'InvPendIdent': {
-            'parameters': {
-                'PID' : {
-                    'proportional': {'value': 20.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.1, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 2.0,  'editable': True, 'unit': 'kg⋅s'},  
-                },
-                'PID_D' : {
-                    'proportional': {'value': 7.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.1, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 2.0,  'editable': True, 'unit': 'kg⋅s'},  
-                },
-                'PID_1' : {
-                    'proportional': {'value': 7.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.1, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 2.0,  'editable': True, 'unit': 'kg⋅s'},  
-                },
-                'PID_D1' : {
-                    'proportional': {'value': 20.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.1, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 2.0,  'editable': True, 'unit': 'kg⋅s'},  
-                },
-            }
-    },
-
-    'PendStabPD': {
-            'parameters': {
-                'PID_1' : {
-                    'proportional': {'value': 8.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.3, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 4.0,  'editable': True, 'unit': 'kg⋅s'},  
-                },
-                'PID_D1' : {
-                    'proportional': {'value': 25.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.1, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 1.8,  'editable': True, 'unit': 'kg⋅s'},  
-                },
-            }
-    },
-
-    'PendSwingUp': {
-            'parameters': {
-                'voltage amplitude': {'value': 0.2, 'editable': True, 'unit': 'V'},
-                'angle comparison value': {'value': 1.0, 'editable': True, 'unit': 'rad'}
-            }
-    },
-    'PendulumFriction': {
-            'parameters': {
-            }
-    },
-
-    'SwingHoldPendulumExtra': {
-            'parameters': {
-                'PID_D' :{
-                    'proportional': {'value': 7.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.5, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 4.0,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_D1' :{
-                    'proportional': {'value': 25.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.2, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 1.5,  'editable': True, 'unit': 'kg⋅s'},
-                },
-        }
-    },
-
-    'UpDownPendulum': {
-            'parameters': {
-                'PID_DIPS' :{
-                    'proportional': {'value': 7.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.5, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 3.0,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_D1IPS' :{
-                    'proportional': {'value': 25.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.2, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 2.0,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_DCC' :{
-                    'proportional': {'value': 7.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 2.0, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 1.0,  'editable': True, 'unit': 'kg⋅s'},
-                },
-                'PID_D1CC' :{
-                    'proportional': {'value': 4.0, 'editable': True, 'unit': 'kg'},
-                    'integral':     {'value': 0.0, 'editable': True, 'unit': 'kg/s'},
-                    'derivative':   {'value': 0.1,  'editable': True, 'unit': 'kg⋅s'},
-                },
-
-            }
-    },
-    'PendulumTest': {},
-    'InvPendulumStream': {
-        'parameters': {}
-    },
-
-}
-"""
-
-
 def get_status(equipment_name: str, in_use: bool):
     status = EquipmentStatus.get_latest(equipment_name)
     if in_use:
@@ -304,6 +144,7 @@ def dashboard(request):
 
     context = {
         "status": status_dict,
+        "experiments": {key: value.name for key, value in EXPERIMENTS.items()},
     }
     return render(request, 'MatlabApp/dashboard.html', context)
 
@@ -333,10 +174,11 @@ def experiment_run_dynamic(request, experiment_name):
 
     # Get recent activity
     recent_commands = Command.objects.filter(experiment=experiment_name).all()[:10]
-    raspi_messages = Message.objects.all()[:10]
+    raspi_messages = Message.objects.all().filter(experiment=experiment_name).order_by('-timestamp')[:10]
 
     context = {
         'experiment_name': experiment_name,
+        'experiment_localized_name': experiment_config.name,
         'parameters': experiment_config.parameters,  # PASS PARAMETERS TO TEMPLATE
         'recent_commands': recent_commands,
         'raspi_messages': raspi_messages,
@@ -435,7 +277,7 @@ def send_experiment_command(request, experiment_name):
             command=command,
         )
 
-        success = send_command(payload)
+        success = send_command(payload, request.user)
 
         cmd_obj.success = success
         cmd_obj.save()
@@ -507,6 +349,33 @@ def get_experiment_defaults(request, experiment_name):
         'experiment': experiment_name,
         'defaults': EXPERIMENTS[experiment_name]
     })
+
+
+@login_required()
+def experiment_data_download(request, experiment_name):
+    messages = Message.objects.filter(user=request.user, experiment=experiment_name).all().order_by('-timestamp')
+    if len(messages) == 0:
+        return HttpResponse("No data to download!", status=404)
+
+    # all messages should follow the same format
+    messageKeys = list(messages[0].message.keys())
+    keys = ["timestamp"] + messageKeys
+    allValues = []
+
+    for msg in messages:
+        msgJson = msg.message
+        value = [str(msg.timestamp.timestamp())]
+        for key in messageKeys:
+            keyValue = msgJson.get(key, "N/A")
+            value.append(str(keyValue))
+        allValues.append(",".join(value))
+
+    data = ",".join(keys) + "\n" + "\n".join(allValues)
+    headers = {
+        "Content-Disposition": "attachment; filename=\"data.csv\"",
+        "Content-Type": "text/csv",
+    }
+    return FileResponse(data, filename='data.csv', headers=headers)
 
 
 @login_required

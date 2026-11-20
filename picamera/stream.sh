@@ -1,8 +1,10 @@
 #!/bin/bash
-# stream.sh v2.0
+# stream.sh v3.0
 
 SERVER="sciencelabtoyou.com"
 STREAM_NAME="pendulum"
+STREAM_USER=${STREAM_USER:user}
+STREAM_PASSWORD=${STREAM_PASSWORD:password}
 
 echo "Starting stream to $SERVER..."
 
@@ -22,7 +24,7 @@ while true; do
         -i - \
         -c:v copy \
         -f mpegts \
-        "srt://$SERVER:8890?streamid=publish:$STREAM_NAME&pkt_size=1316&latency=50000"
+        "srt://$SERVER:8890?streamid=publish:$STREAM_NAME:$STREAM_USER:$STREAM_PASSWORD&pkt_size=1316&latency=50000"
 
     echo "Stream dropped, reconnecting in 5s..."
     sleep 5

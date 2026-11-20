@@ -1,5 +1,6 @@
 {
-	"name": "CraneStab",
+	"id": "CraneStab",
+	"name": "Crane Stab",
 	"parameters": {
 		"PID_D": {
 			"proportional": {

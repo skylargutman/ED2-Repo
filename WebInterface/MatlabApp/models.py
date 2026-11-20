@@ -3,6 +3,8 @@ from django.db import models
 # Control lock model to manage which user has control of the experiment at any given time, with a timeout mechanism
 from django.utils import timezone
 
+from .instruments import Instrument
+
 
 class ControlLock(models.Model):
     session_key = models.CharField(max_length=40, unique=True)
@@ -37,7 +39,7 @@ class ExperimentSession(models.Model):
 
 # command Model, stores commands sent from the site, timestamp, and user
 class Command(models.Model):
-    instrument = models.CharField(max_length=100, default="pendulum")
+    instrument = models.CharField(max_length=100, default=Instrument.PENDULUM.value)
     experiment = models.CharField(max_length=100, default="")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='commands', null=True)
 
@@ -62,10 +64,12 @@ class SensorData(models.Model):
 
 # Message model stores messages from MATLAB, timestamp, and the user
 class Message(models.Model):
-    message = models.TextField()
-    timestamp = models.DateTimeField(auto_now_add=True)
+    instrument = models.CharField(max_length=100, default=Instrument.PENDULUM.value)
+    experiment = models.CharField(max_length=100, default="")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='messages', null=True)
 
-    # user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='messages')
+    message = models.JSONField(default=dict, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.message} @ {self.timestamp}"  # (to {self.user.username})"

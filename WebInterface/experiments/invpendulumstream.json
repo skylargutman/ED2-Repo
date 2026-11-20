@@ -1,4 +1,5 @@
 {
-	"name": "InvPendulumStream",
+	"id": "InvPendulumStream",
+	"name":  "Inverted Pendulum Stream",
 	"parameters": {}
 }

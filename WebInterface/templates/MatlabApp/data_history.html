@@ -77,14 +77,16 @@
                             <thead class="table-dark sticky-top">
                                 <tr>
                                     <th style="width: 10%">#</th>
+                                    <th style="width: 10%">Experiment</th>
                                     <th style="width: 60%">Reading</th>
-                                    <th style="width: 30%">Timestamp</th>
+                                    <th style="width: 20%">Timestamp</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for msg in raspi_messages %}
                                 <tr>
                                     <td class="text-muted">{{ forloop.counter }}</td>
+                                    <td>{{ msg.experiment }}</td>
                                     <td>
                                         <span class="badge text-success-emphasis fs-6">
                                             {{ msg.message }}

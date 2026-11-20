@@ -1,0 +1,13 @@
+Pinkish red aluminum wire -> Motor for pendulum
+Other wires -> bottom encoders
+
+Green wire -> 10 Ouput C
+Orange wire -> 3 Ouput A
+White orange striped wire -> 2 Ouput A
+White gray striped wire -> 16 VCC
+Blue white  striped wire -> 14 Output D
+Gray white striped wire -> 7 Input B; 8 GND
+
+Blue white striped/Orange wire giving signals blue white stripes giving more. Output A and D.
+
+Blue white striped non inverted.

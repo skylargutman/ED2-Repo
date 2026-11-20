@@ -27,6 +27,9 @@ urlpatterns = [
     path('experiment/<str:experiment_name>/params/', views.update_experiment_params, name='update_experiment_params'),
     path('experiment/<str:experiment_name>/defaults/', views.get_experiment_defaults, name='get_experiment_defaults'),
 
+    # data
+    path('experiment/<str:experiment_name>/data.csv', views.experiment_data_download, name='experiment_data_download'),
+
     # Emergency stop
     path('control/estop/', views.estop, name='estop'),
 

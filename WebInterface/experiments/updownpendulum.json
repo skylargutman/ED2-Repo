@@ -1,5 +1,6 @@
 {
-	"name": "UpDownPendulum",
+	"id": "UpDownPendulum",
+	"name": "Up Down Pendulum",
 	"parameters": {
 		"PID_DIPS": {
 			"proportional": {
