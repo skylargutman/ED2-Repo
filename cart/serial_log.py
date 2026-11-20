@@ -34,6 +34,10 @@ BAUD = 921600
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 USB_HINTS = ("CP210", "CH340", "CH910", "USB", "UART")
 
+# Line noise decodes to U+FFFD, which a cp1252 Windows console can't print; that
+# killed the logging thread (2026-10-26). Replace unprintable characters instead.
+sys.stdout.reconfigure(errors="replace")
+
 print_lock = threading.Lock()
 open_ports = {}          # port -> (serial, log file, lock) while it is being logged
 

@@ -400,6 +400,10 @@ homes, measures, drives the motor and keeps every safety stop. Design:
 | 38 | GPIO20 | 5 | stop pulse |
 | 33 | GPIO13 | 18 | HIGH while a Simulink run is open |
 
+On the PendulumV2 board these arrive by jumper wires on J2, a 1x6 header in the
+order of the board's resistor stack (TXD, RXD, START, STOP, READY, GND), so they
+route without crossing. Never land a jumper on Pi pin 2 or 4 (5 V).
+
 UART2: 230400 baud 8N1 (the most the Raspberry Pi Blockset Serial blocks offer), `/dev/ttyAMA0` on the Pi (not `/dev/serial0`: on the Pi 5
 that is the debug connector, `ttyAMA10`; needs `dtparam=uart0=on`) (raspi-config: serial login
 shell off, serial hardware on). Lockstep: each command is answered at once

@@ -76,3 +76,73 @@ def test_homing_timeout_pulses_stop(monkeypatch, tmp_path):
     dac_daemon.launch_experiment("M", {})
     assert pulses == [dac_daemon.GPIO_HOME_START, dac_daemon.GPIO_STOP]
     assert "error:homing_timeout" in published
+
+
+class FakeMsg:
+    topic = "pendulum/cmd"
+
+    def __init__(self, payload):
+        self.payload = payload.encode()
+
+
+class FakeEsp:
+    def __init__(self, starts=True):
+        self.starts, self.running, self.calls = starts, False, []
+
+    def start(self, exp):
+        self.calls.append(("start", exp))
+        self.running = self.starts
+        return self.starts
+
+    def stop_session(self, **kw):
+        self.calls.append(("stop",))
+        self.running = False
+
+
+@pytest.fixture
+def routes(monkeypatch):
+    calls, published = [], []
+    monkeypatch.setattr(dac_daemon, "launch_experiment", lambda exp, params: calls.append(("simulink", exp)))
+    monkeypatch.setattr(dac_daemon, "gpio_pulse", lambda pin, *a: calls.append(("pulse", pin)))
+    monkeypatch.setattr(dac_daemon, "mqtt_publish", published.append)
+    monkeypatch.setattr(dac_daemon, "_model_process", None)
+    return calls, published
+
+
+def test_swinghold_runs_on_the_esp32_firmware(monkeypatch, routes):
+    calls, _ = routes
+    esp = FakeEsp()
+    monkeypatch.setattr(dac_daemon, "_esp", esp)
+    dac_daemon.on_message(None, None, FakeMsg('{"command": "sta", "experiment": "SwingHoldPendulum", "parameters": {}}'))
+    assert esp.calls == [("start", "SwingHoldPendulum")]
+    assert calls == []                                   # no Simulink launch, no start pulse
+
+
+def test_other_experiments_still_run_on_simulink(monkeypatch, routes):
+    calls, _ = routes
+    esp = FakeEsp()
+    monkeypatch.setattr(dac_daemon, "_esp", esp)
+    dac_daemon.on_message(None, None, FakeMsg('{"command": "sta", "experiment": "PendSwingUp", "parameters": {}}'))
+    assert calls == [("simulink", "PendSwingUp")] and esp.calls == []
+
+
+def test_firmware_experiment_without_the_usb_port_reports_an_error(monkeypatch, routes):
+    _, published = routes
+    monkeypatch.setattr(dac_daemon, "_esp", None)
+    dac_daemon.on_message(None, None, FakeMsg('{"command": "sta", "experiment": "SwingHoldPendulum"}'))
+    assert "error:esp32_usb_missing" in published
+
+
+def test_stop_ends_a_firmware_session(monkeypatch, routes):
+    calls, _ = routes
+    esp = FakeEsp()
+    esp.running = True
+    monkeypatch.setattr(dac_daemon, "_esp", esp)
+    dac_daemon.on_message(None, None, FakeMsg('{"command": "sto"}'))
+    assert esp.calls == [("stop",)]
+    assert ("pulse", dac_daemon.GPIO_STOP) in calls
+
+
+def test_pi_pins_match_the_rig_wiring():
+    # Jumper wires from Pi pins 36/38/33 to the board's J2 (docs/esp32.md)
+    assert (dac_daemon.GPIO_HOME_START, dac_daemon.GPIO_STOP, dac_daemon.GPIO_HOME_DONE) == (16, 20, 13)

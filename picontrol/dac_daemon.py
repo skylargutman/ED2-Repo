@@ -31,6 +31,13 @@
 #   Publish   : pendulum/status — payloads: "online", "offline", "homing",
 #                                 "running:ModelName", "stopped"
 #
+# Firmware experiments (esp32_usb.py):
+#   Website experiments in esp32_usb.FIRMWARE_EXPERIMENTS (SwingHoldPendulum ->
+#   the ESP32's own "SwingBal" swing-up & balance) run on the ESP32 itself,
+#   started over its USB serial port. Its data lines are published as telemetry
+#   on raspi/to_django, like the Simulink models do. Every other experiment is a
+#   Simulink model, below.
+#
 # Experiment launch:
 #   Parameters written to /home/owlsley/picontrol/params/params.json
 #   Model launched as: sudo /home/owlsley/picontrol/models/<exp>.elf
@@ -51,6 +58,8 @@ import json
 import os
 import paho.mqtt.client as mqtt
 
+import esp32_usb
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -63,12 +72,12 @@ NEUTRAL_VOLTAGE = 2.5       # volts — motor controller idle
 
 # GPIO chip (Pi 5 uses gpiochip0 / pinctrl-rp1)
 GPIO_CHIP       = 15 # this was previously 0, but it should be 15 for the Pi 5 ?? - alex
-GPIO_HOME_START = 16        # → ESP32 GPIO  4 : start pulse
-GPIO_STOP       = 20        # → ESP32 GPIO  5 : stop pulse
-GPIO_HOME_DONE  = 13        # ← ESP32 GPIO 18 : HIGH while a Simulink run is open (input)
+GPIO_HOME_START = 16        # pin 36 → ESP32 GPIO  4 : start pulse
+GPIO_STOP       = 20        # pin 38 → ESP32 GPIO  5 : stop pulse
+GPIO_HOME_DONE  = 13        # pin 33 ← ESP32 GPIO 18 : HIGH while a Simulink run is open (input)
 
 PULSE_MS        = 200       # GPIO pulse duration in milliseconds
-HOMING_TIMEOUT_S = 60      # max seconds to wait for GPIO 13 (homing + hanging reference, ~15 s nominal)
+HOMING_TIMEOUT_S = 60      # max seconds to wait for GPIO_HOME_DONE (homing + hanging reference, ~15 s nominal)
 
 # Simulink process name to watch for (updated dynamically when experiment launches)
 SIMULINK_PROCESS_NAME = ""  # empty until first experiment launched
@@ -85,6 +94,7 @@ MQTT_BROKER            = "sciencelabtoyou.com"
 MQTT_PORT              = 1885
 MQTT_CMD               = "pendulum/cmd"
 MQTT_STATUS            = "pendulum/status"
+MQTT_TELEMETRY         = "raspi/to_django"   # same topic as the Simulink models' telemetry
 
 # =============================================================================
 # Logging
@@ -105,6 +115,7 @@ _mqtt_client    = None   # paho client  — set in setup_mqtt()
 _current_exp    = None   # currently running experiment name (no .elf)
 _model_process  = None   # subprocess.Popen handle for running model
 _dac_present    = False  # MCP4725 answered on I2C — set by dac_probe()
+_esp            = None   # esp32_usb.Esp32Usb — set in esp_open() when the ESP32's USB is plugged in
 
 # =============================================================================
 # MCP4725 DAC helpers
@@ -165,7 +176,8 @@ def gpio_setup(handle):
     for pin in [GPIO_HOME_START, GPIO_STOP]:
         lgpio.gpio_claim_output(handle, pin, 0)
     lgpio.gpio_claim_input(handle, GPIO_HOME_DONE)
-    log.info("GPIO pins configured (HOME_START=16, STOP=20, HOME_DONE=13 input)")
+    log.info(f"GPIO pins configured (HOME_START={GPIO_HOME_START}, STOP={GPIO_STOP}, "
+             f"HOME_DONE={GPIO_HOME_DONE} input)")
 
 # =============================================================================
 # MQTT helpers
@@ -179,6 +191,14 @@ def mqtt_publish(payload: str):
             log.info(f"MQTT published → {MQTT_STATUS}: {payload}")
         except Exception as e:
             log.error(f"MQTT publish failed: {e}")
+
+def mqtt_publish_telemetry(payload: str):
+    """Publish one telemetry reading (firmware experiments) to raspi/to_django."""
+    if _mqtt_client is not None:
+        try:
+            _mqtt_client.publish(MQTT_TELEMETRY, payload, qos=0)
+        except Exception as e:
+            log.error(f"MQTT telemetry publish failed: {e}")
 
 # =============================================================================
 # Experiment management
@@ -213,14 +233,14 @@ def launch_experiment(exp_name: str, params: dict):
     mqtt_publish("homing")
     gpio_pulse(GPIO_HOME_START)
 
-    # Wait for homing complete signal on GPIO 13 with timeout
+    # Wait for homing complete signal on GPIO_HOME_DONE with timeout
     log.info(f"Waiting for homing complete signal (timeout={HOMING_TIMEOUT_S}s)...")
     start_time = time.time()
     homing_ok = False
     while time.time() - start_time < HOMING_TIMEOUT_S:
         if lgpio.gpio_read(_gpio_handle, GPIO_HOME_DONE) == 1:
             homing_ok = True
-            log.info("Homing complete signal received on GPIO 13")
+            log.info(f"Homing complete signal received on GPIO {GPIO_HOME_DONE}")
             break
         time.sleep(0.1)
 
@@ -248,11 +268,42 @@ def launch_experiment(exp_name: str, params: dict):
         log.error(f"Failed to launch {elf_path}: {e}")
         mqtt_publish(f"error:launch_failed:{exp_name}")
 
+def esp_open():
+    """Open the ESP32's USB port, if it is plugged in, for firmware experiments."""
+    global _esp
+    port = esp32_usb.find_port()
+    if port is None:
+        log.warning("ESP32 USB port not found: firmware experiments unavailable")
+        return
+    try:
+        _esp = esp32_usb.Esp32Usb(esp32_usb.open_serial(port), mqtt_publish_telemetry, mqtt_publish)
+        _esp.start_reader()
+        log.info(f"ESP32 USB port open: {port}")
+    except Exception as e:
+        log.error(f"Failed to open ESP32 USB port {port}: {e}")
+        _esp = None
+
+def launch_firmware_experiment(exp_name: str):
+    """Run a website experiment on the ESP32's own firmware (see esp32_usb.py)."""
+    stop_experiment()
+    if _esp is None:
+        log.error(f"{exp_name} runs on the ESP32 firmware, but its USB port is not open")
+        mqtt_publish("error:esp32_usb_missing")
+        return
+    if _esp.start(exp_name):
+        log.info(f"Firmware experiment started: {exp_name} "
+                 f"({esp32_usb.FIRMWARE_EXPERIMENTS[exp_name]}, {esp32_usb.RUN_S:.0f} s)")
+    else:
+        mqtt_publish(f"error:launch_failed:{exp_name}")
+
 def stop_experiment():
     """Kill running model process, set DAC neutral.
-    NOTE: GPIO 20 is NOT pulsed here — ESP32 #2 stop is only for explicit
+    NOTE: GPIO_STOP is NOT pulsed here — ESP32 #2 stop is only for explicit
     stop commands, not for model handoff during experiment launch."""
     global _current_exp, _model_process, SIMULINK_PROCESS_NAME
+
+    if _esp is not None and _esp.running:
+        _esp.stop_session(reason="stopped by the Pi")
 
     if _model_process is not None:
         try:
@@ -271,13 +322,13 @@ def stop_experiment():
     mqtt_publish("stopped")
 
 def trigger_stop():
-    """Stop running experiment, set DAC neutral, pulse GPIO 20 to stop ESP32 #2."""
+    """Stop running experiment, set DAC neutral, pulse GPIO_STOP to stop ESP32 #2."""
     log.info("Stop triggered via MQTT")
     stop_experiment()
     gpio_pulse(GPIO_STOP)  # only pulse ESP32 #2 on explicit stop command
 
 def trigger_homing_start():
-    """Pulse GPIO 16 to tell ESP32 #2 to begin homing."""
+    """Pulse GPIO_HOME_START to tell ESP32 #2 to begin homing."""
     log.info("Homing start triggered via MQTT")
     mqtt_publish("homing")
     gpio_pulse(GPIO_HOME_START)
@@ -321,7 +372,10 @@ def on_message(client, userdata, msg):
                 if not exp:
                     log.error("sta command missing 'experiment' field")
                     return
-                launch_experiment(exp, params)
+                if exp in esp32_usb.FIRMWARE_EXPERIMENTS:
+                    launch_firmware_experiment(exp)
+                else:
+                    launch_experiment(exp, params)
 
             elif cmd == "sto":
                 trigger_stop()
@@ -431,6 +485,9 @@ def run_daemon():
     # --- Start MQTT background thread ---
     mqtt_client = setup_mqtt()
 
+    # --- ESP32 USB port, for firmware experiments ---
+    esp_open()
+
     # --- State tracking ---
     simulink_was_running = False
 
@@ -458,6 +515,8 @@ def run_daemon():
     finally:
         # --- Clean shutdown ---
         log.info("Shutdown: setting DAC to neutral and releasing GPIO")
+        if _esp is not None:
+            _esp.close()
         mqtt_publish("offline")
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
