@@ -47,6 +47,9 @@ slprj/
 # ---------------------------------------------------------------------------
 ~*.lck
 fp-info-cache
+temp-freerouting.dsn
+# PendulumV2: before_* copies written by the editing scripts (~23 MB), not KiCad's own zips
+KiCad/PendulumV2/*-backups/
 
 # Optional cleanup, NOT enabled: KiCad auto-backups (*-backups/*.zip, ~50 MB)
 # and MATLAB autosaves (*.asv) are currently tracked. Uncomment and run

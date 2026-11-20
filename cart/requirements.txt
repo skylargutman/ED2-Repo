@@ -1,0 +1,5 @@
+# Serial logger (cart/serial_log.py)
+#   python -m pip install -r cart/requirements.txt
+pyserial>=3.5
+# Only for the logger's tests: python -m pytest cart/tests -q
+pytest>=8
